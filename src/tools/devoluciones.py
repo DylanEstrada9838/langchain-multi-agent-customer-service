@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Optional
 
 from langchain_core.tools import tool
 
@@ -8,12 +9,14 @@ from src.schemas.tool_inputs import CrearEtiquetaInput, VerificarDevolucionInput
 from src.tools.crm import dump
 
 
-def evaluar_devolucion(pedido_id: str, sku: str) -> dict:
+def evaluar_devolucion(pedido_id: str, sku: str, cliente_id: Optional[str] = None) -> dict:
     repo = get_repo()
-    pedido = repo.get_pedido(pedido_id)
+    pedido = repo.get_pedido(pedido_id, cliente_id=cliente_id)
     sku = sku.strip().upper()
     if not pedido:
         return {"elegible": False, "motivo": f"Pedido {pedido_id} no encontrado"}
+    if "error_titularidad" in pedido:
+        return {"elegible": False, "motivo": pedido["error_titularidad"]}
     if sku not in [p["sku"] for p in pedido["productos"]]:
         return {"elegible": False, "motivo": f"El SKU {sku} no pertenece al pedido"}
     prod = repo.get_producto(sku)
@@ -38,15 +41,15 @@ def evaluar_devolucion(pedido_id: str, sku: str) -> dict:
 
 
 @tool("verificar_devolucion", args_schema=VerificarDevolucionInput)
-def verificar_devolucion(pedido_id: str, sku: str) -> str:
-    """Verifica si un producto de un pedido es elegible para devolución (plazo según segmento, estado y tipo de producto)."""
-    return dump(evaluar_devolucion(pedido_id, sku))
+def verificar_devolucion(pedido_id: str, sku: str, cliente_id: Optional[str] = None) -> str:
+    """Verifica si un producto de un pedido es elegible para devolución (titularidad, plazo según segmento, estado y tipo de producto)."""
+    return dump(evaluar_devolucion(pedido_id, sku, cliente_id=cliente_id))
 
 
 @tool("crear_etiqueta_devolucion", args_schema=CrearEtiquetaInput)
-def crear_etiqueta_devolucion(pedido_id: str, sku: str, motivo: str) -> str:
-    """Genera una etiqueta de envío (RMA) para devolver un producto y la persiste en la base de datos. Solo funciona si es elegible."""
-    ev = evaluar_devolucion(pedido_id, sku)
+def crear_etiqueta_devolucion(pedido_id: str, sku: str, motivo: str, cliente_id: Optional[str] = None) -> str:
+    """Genera una etiqueta de envío (RMA) para devolver un producto y la persiste en la base de datos. Solo funciona si es elegible y pertenece al cliente."""
+    ev = evaluar_devolucion(pedido_id, sku, cliente_id=cliente_id)
     if not ev["elegible"]:
         return dump({"error": "No se puede crear la etiqueta", "motivo": ev["motivo"]})
     rma = get_repo().get_or_create_rma(pedido_id, sku, motivo)

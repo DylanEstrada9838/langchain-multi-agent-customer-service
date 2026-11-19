@@ -33,11 +33,16 @@ class SupportRepository:
             row = s.get(ClienteModel, cid)
             return row.to_dict() if row else None
 
-    def get_pedido(self, pedido_id: str) -> dict[str, Any] | None:
+    def get_pedido(self, pedido_id: str, cliente_id: str | None = None) -> dict[str, Any] | None:
         pid = pedido_id.strip().upper()
         with self._session_factory() as s:
             row = s.get(PedidoModel, pid)
-            return row.to_dict() if row else None
+            if not row:
+                return None
+            data = row.to_dict()
+        if cliente_id and data["cliente_id"] != cliente_id.strip().upper():
+            return {"error_titularidad": f"Acceso denegado: el pedido {pid} no pertenece al cliente {cliente_id.strip().upper()}"}
+        return data
 
     def get_producto(self, sku: str) -> dict[str, Any] | None:
         code = sku.strip().upper()

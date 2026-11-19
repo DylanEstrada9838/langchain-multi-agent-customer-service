@@ -26,8 +26,25 @@ def setup_in_memory_db():
 def test_cliente_y_pedido():
     assert json.loads(consultar_cliente.invoke({"cliente_id": "C900"}))["segmento"] == "VIP"
     assert "error" in json.loads(consultar_cliente.invoke({"cliente_id": "NOPE"}))
-    assert json.loads(consultar_pedido.invoke({"pedido_id": "P9001"}))["estado_envio"] == "entregado"
+    assert json.loads(consultar_pedido.invoke({"pedido_id": "P9001", "cliente_id": "C900"}))["estado_envio"] == "entregado"
     assert "error" in json.loads(consultar_pedido.invoke({"pedido_id": "X"}))
+
+
+def test_titularidad_pedido_bloquea_acceso_cruzado():
+    # P9001 pertenece a C900; si consulta C901 debe denegar el acceso en las 3 herramientas de pedidos/devoluciones
+    res_pedido = json.loads(consultar_pedido.invoke({"pedido_id": "P9001", "cliente_id": "C901"}))
+    assert "error" in res_pedido and "no pertenece al cliente C901" in res_pedido["error"]
+
+    res_verif = json.loads(verificar_devolucion.invoke({"pedido_id": "P9001", "sku": "SKU-002", "cliente_id": "C901"}))
+    assert res_verif["elegible"] is False
+    assert "no pertenece al cliente C901" in res_verif["motivo"]
+
+    res_rma = json.loads(
+        crear_etiqueta_devolucion.invoke(
+            {"pedido_id": "P9001", "sku": "SKU-002", "motivo": "intento cruzado", "cliente_id": "C901"}
+        )
+    )
+    assert "error" in res_rma and "no pertenece al cliente C901" in res_rma["motivo"]
 
 
 def test_kb_e_incidencias():
