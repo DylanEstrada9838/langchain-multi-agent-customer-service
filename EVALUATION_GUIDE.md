@@ -100,6 +100,28 @@ You can upload or update all 23 scenarios from [data/eval_dataset.jsonl](file://
 .venv\Scripts\python main.py --sync-dataset --dataset-name "techstore-support-golden-v2"
 ```
 
+### 3.4 Running Automated Evaluations in LangSmith (`--eval --langsmith`)
+Runs `langsmith.evaluate()` in the cloud using the 5 deterministic code evaluators (`categoria_match`, `especialista_match`, `escalado_match`, `tool_trajectory_match`, `qa_quality_gate`), executing scenarios concurrently:
+
+```powershell
+# Full evaluation of the production baseline (v3) across all 23 scenarios
+.venv\Scripts\python main.py --eval --langsmith --version v3
+
+# Evaluate with custom concurrency (default: 4 parallel workers)
+.venv\Scripts\python main.py --eval --langsmith --version v3 --max-concurrency 4
+
+# Fast smoke evaluation on a subset of scenarios
+.venv\Scripts\python main.py --eval --langsmith --version v3 --limit 3
+
+# Filter by scenario category
+.venv\Scripts\python main.py --eval --langsmith --version v3 --category boundary_testing
+
+# Compare different agent version combinations directly in LangSmith
+.venv\Scripts\python main.py --eval --langsmith --versions "triaje:v3,devoluciones:v3,soporte_tecnico:v3,consultas:v3,qa:v2"
+```
+
+The CLI outputs the experiment URL, aggregate score table, and failure diagnostics. In the LangSmith web UI under **Datasets & Experiments -> techstore-support-golden-v1 -> Experiments**, you can click any row to inspect the run trace, token usage, and the specific evaluator diagnostic comments (under the **Feedback** tab).
+
 ---
 
 ## 4. Core Quality Targets — How to Decide Which Version Wins
