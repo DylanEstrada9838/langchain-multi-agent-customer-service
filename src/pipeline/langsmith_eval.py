@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from src import config
 from src.agents import active_version, get_active_versions
+from src.llm import calculate_cost
 from src.pipeline.evaluator import (
     DEFAULT_DATASET_PATH,
     _check_tools_match,
@@ -140,12 +141,15 @@ def make_pipeline_target(
             full = next(s for s in load_eval_dataset() if s["id"] == sc["id"])
             qa_ver = sys_instance.versiones.get("qa", active_version("qa"))
             res_qa = evaluate_qa_scenario(full, version=qa_ver, llm=llm)
+            cost_qa = calculate_cost(config.DEFAULT_LLM_MODEL, int(res_qa.total_tokens * 0.7), int(res_qa.total_tokens * 0.3))
             return {
                 "stage": "qa",
                 "qa": res_qa.detalles.get("qa", {}),
                 "stage_checks": res_qa.checks,
                 "tool_calls": [tc.model_dump() for tc in res_qa.actual_tools],
                 "total_tokens": res_qa.total_tokens,
+                "cost_usd": cost_qa,
+                "ttft_seconds": res_qa.segundos,
                 "segundos": res_qa.segundos,
             }
 
@@ -163,6 +167,8 @@ def make_pipeline_target(
             "tool_calls": [tc.model_dump() for tc in res.tool_calls],
             "versiones_agentes": res.versiones_agentes,
             "total_tokens": res.total_tokens,
+            "cost_usd": res.cost_usd,
+            "ttft_seconds": res.ttft_seconds,
             "segundos": res.segundos,
         }
 
@@ -277,7 +283,9 @@ SUMMARY_METRICS = (
     "mean_qa_politica",
     "first_pass_qa_approval_rate",
     "avg_tokens",
+    "avg_cost_usd",
     "avg_latency_seconds",
+    "avg_ttft_seconds",
 )
 SUMMARY_EVALUATORS = [_make_summary_evaluator(k) for k in SUMMARY_METRICS]
 

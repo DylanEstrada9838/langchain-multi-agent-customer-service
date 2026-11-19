@@ -20,7 +20,7 @@ REGRESSION_TOLERANCES: dict[str, float] = {
     "mean_qa_politica": 0.25,
 }
 # Métricas "menos es mejor": solo se reportan (no bloquean el gate).
-COST_METRICS = ("avg_tokens", "avg_latency_seconds")
+COST_METRICS = ("avg_tokens", "avg_cost_usd", "avg_latency_seconds", "avg_ttft_seconds")
 
 
 class MetricComparison(BaseModel):
@@ -78,7 +78,9 @@ def compute_pipeline_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
         and ((r["outputs"].get("qa") or {}).get("veredicto") in ("aprobado", "reescrito"))
     )
     tokens = sum((r.get("outputs") or {}).get("total_tokens", 0) for r in rows)
+    costs = sum((r.get("outputs") or {}).get("cost_usd", 0.0) for r in rows)
     seconds = sum((r.get("outputs") or {}).get("segundos", 0.0) for r in rows)
+    ttfts = sum((r.get("outputs") or {}).get("ttft_seconds", (r.get("outputs") or {}).get("segundos", 0.0)) for r in rows)
 
     return {
         "pass_rate": round(passed / n_all, 4),
@@ -86,7 +88,9 @@ def compute_pipeline_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
         "mean_qa_politica": round(sum(politica) / max(len(politica), 1), 2),
         "first_pass_qa_approval_rate": round(first_pass / n_e2e, 4),
         "avg_tokens": round(tokens / n_all, 1),
+        "avg_cost_usd": round(costs / n_all, 6),
         "avg_latency_seconds": round(seconds / n_all, 2),
+        "avg_ttft_seconds": round(ttfts / n_all, 2),
     }
 
 
@@ -173,7 +177,9 @@ def _fmt(metric: str, val: float) -> str:
         return f"{val:.2f} / 5"
     if metric == "avg_tokens":
         return f"{val:,.0f}"
-    if metric == "avg_latency_seconds":
+    if metric == "avg_cost_usd":
+        return f"${val:.4f}"
+    if metric in ("avg_latency_seconds", "avg_ttft_seconds"):
         return f"{val:.2f} s"
     return f"{val * 100:.1f}%"
 

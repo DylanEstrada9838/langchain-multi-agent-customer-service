@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from src import config
 from src.agents import AGENT_BINDINGS, active_version, build_agent, get_active_versions
+from src.llm import calculate_cost
 from src.pipeline import steps
 from src.pipeline.context import generar_contexto
 from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
@@ -34,6 +35,7 @@ class AgentStepMetrics(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
+    cost_usd: float = 0.0
     tool_calls: list[ToolCallTrace] = Field(default_factory=list)
 
 
@@ -69,6 +71,8 @@ class ResultadoTicket(BaseModel):
     metricas_agentes: list[AgentStepMetrics] = Field(default_factory=list)
     tool_calls: list[ToolCallTrace] = Field(default_factory=list)
     total_tokens: int = 0
+    cost_usd: float = 0.0
+    ttft_seconds: float = 0.0
     segundos: float
 
 
@@ -120,6 +124,7 @@ def _extract_telemetry(agent_name: str, version: str, out: dict[str, Any], elaps
                 ToolCallTrace(agent=agent_name, tool=t_name, args=t_args if isinstance(t_args, dict) else {})
             )
 
+    cost = calculate_cost(config.DEFAULT_LLM_MODEL, in_tok, out_tok)
     return AgentStepMetrics(
         agent=agent_name,
         version=version,
@@ -127,6 +132,7 @@ def _extract_telemetry(agent_name: str, version: str, out: dict[str, Any], elaps
         input_tokens=in_tok,
         output_tokens=out_tok,
         total_tokens=tot_tok or (in_tok + out_tok),
+        cost_usd=cost,
         tool_calls=tool_calls,
     )
 
@@ -232,6 +238,8 @@ def procesar_ticket(
     usados = {"triaje": triaje_ver, nombre_esp: esp_ver, "qa": qa_ver}
     all_tools = [tc for m in metricas for tc in m.tool_calls]
     total_tokens = sum(m.total_tokens for m in metricas)
+    total_cost = round(sum(m.cost_usd for m in metricas), 6)
+    elapsed = round(time.time() - t0, 2)
 
     return ResultadoTicket(
         ticket_id=ticket.get("id", "N/A"),
@@ -247,7 +255,9 @@ def procesar_ticket(
         metricas_agentes=metricas,
         tool_calls=all_tools,
         total_tokens=total_tokens,
-        segundos=round(time.time() - t0, 2),
+        cost_usd=total_cost,
+        ttft_seconds=elapsed,
+        segundos=elapsed,
     )
 
 

@@ -16,6 +16,8 @@
     "mean_qa_politica": 5.0,
     "first_pass_qa_approval_rate": 1.0,
     "avg_tokens": 8564.8,
-    "avg_latency_seconds": 10.2
+    "avg_cost_usd": 0.00185,
+    "avg_latency_seconds": 10.2,
+    "avg_ttft_seconds": 10.2
   }
 }

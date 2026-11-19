@@ -17,12 +17,14 @@ GOOD = {
     "mean_qa_politica": 5.0,
     "first_pass_qa_approval_rate": 1.0,
     "avg_tokens": 8584.7,
+    "avg_cost_usd": 0.0028,
     "avg_latency_seconds": 10.54,
+    "avg_ttft_seconds": 10.54,
 }
 BASELINE = {"metrics": GOOD}
 
 
-def _row(sid, stage="pipeline", *, ok=True, esc=1, politica=5, intentos=1, veredicto="aprobado", tokens=100, seg=2.0):
+def _row(sid, stage="pipeline", *, ok=True, esc=1, politica=5, intentos=1, veredicto="aprobado", tokens=100, cost=0.001, seg=2.0, ttft=2.0):
     scores = {
         "categoria_match": int(ok) if stage != "qa" else None,
         "especialista_match": int(ok) if stage != "qa" else None,
@@ -30,7 +32,14 @@ def _row(sid, stage="pipeline", *, ok=True, esc=1, politica=5, intentos=1, vered
         "tool_trajectory_match": int(ok),
         "qa_quality_gate": int(ok),
     }
-    outputs = {"stage": stage, "total_tokens": tokens, "segundos": seg, "qa": {"politica": politica, "veredicto": veredicto}}
+    outputs = {
+        "stage": stage,
+        "total_tokens": tokens,
+        "cost_usd": cost,
+        "segundos": seg,
+        "ttft_seconds": ttft,
+        "qa": {"politica": politica, "veredicto": veredicto},
+    }
     if stage != "qa":
         outputs["intentos_qa"] = intentos
     return {"scenario_id": sid, "stage": stage, "scores": scores, "outputs": outputs}
@@ -43,11 +52,18 @@ def test_active_versions_cubren_todos_los_agentes_y_existen():
         assert ver in list_versions(name)
 
 
+def test_calculate_cost():
+    from src.llm import calculate_cost
+    # gpt-4o-mini: 0.15/1M in, 0.60/1M out
+    c = calculate_cost("gpt-4o-mini", 1000, 500)
+    assert c == 0.00045
+
+
 def test_compute_pipeline_metrics():
     rows = [
-        _row("A"),
-        _row("B", ok=False, esc=0, intentos=2, veredicto="rechazado", politica=3, tokens=300, seg=4.0),
-        _row("QA", stage="qa"),
+        _row("A", tokens=100, cost=0.001, seg=2.0, ttft=2.0),
+        _row("B", ok=False, esc=0, intentos=2, veredicto="rechazado", politica=3, tokens=300, cost=0.003, seg=4.0, ttft=4.0),
+        _row("QA", stage="qa", tokens=100, cost=0.001, seg=2.0, ttft=2.0),
     ]
     m = compute_pipeline_metrics(rows)
     assert m["pass_rate"] == round(2 / 3, 4)
@@ -55,7 +71,9 @@ def test_compute_pipeline_metrics():
     assert m["mean_qa_politica"] == 4.0
     assert m["first_pass_qa_approval_rate"] == 0.5
     assert m["avg_tokens"] == round(500 / 3, 1)
+    assert m["avg_cost_usd"] == round(0.005 / 3, 6)
     assert m["avg_latency_seconds"] == round(8.0 / 3, 2)
+    assert m["avg_ttft_seconds"] == round(8.0 / 3, 2)
 
 
 def test_fila_con_excepcion_cuenta_como_fallo():
