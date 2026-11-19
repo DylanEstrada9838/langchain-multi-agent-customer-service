@@ -226,3 +226,45 @@ def test_sync_dataset_to_langsmith_idempotente():
     assert ex["inputs"]["id"] == "EVAL-001"
     assert ex["outputs"]["expected_routing"]["categoria"] == "devolucion"
     assert ex["metadata"]["scenario_id"] == "EVAL-001"
+
+
+def test_make_pipeline_target_envuelve_procesar_ticket(monkeypatch):
+    import json
+
+    from src.pipeline import langsmith_eval as le
+    from src.pipeline.evaluator import load_eval_dataset
+    from src.pipeline.langsmith_eval import make_pipeline_target, scenario_to_langsmith_example
+    from src.pipeline.orchestrator import ResultadoTicket, SistemaMultiagente, ToolCallTrace
+    from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
+
+    capturado = {}
+
+    def fake_procesar(ticket, sistema):
+        capturado["ticket"] = ticket
+        return ResultadoTicket(
+            ticket_id=ticket["id"],
+            clasificacion=ClasificacionTicket(categoria="consulta"),
+            especialista="consultas",
+            borrador=BorradorRespuesta(respuesta_cliente="hola"),
+            qa=EvaluacionQA(respuesta_final="hola"),
+            respuesta_final="hola",
+            tool_calls=[ToolCallTrace(agent="triaje", tool="buscar_cliente", args={"cliente_id": "C001"})],
+            total_tokens=10,
+            segundos=0.5,
+        )
+
+    monkeypatch.setattr(le, "procesar_ticket", fake_procesar)
+    sc = next(
+        s for s in load_eval_dataset()
+        if (s.get("context") or {}).get("stage_under_test") != "qa"
+    )
+    inputs = scenario_to_langsmith_example(sc, "x")["inputs"]
+    target = make_pipeline_target(SistemaMultiagente(None, None, None, None, None))
+    out = target(inputs)
+
+    assert capturado["ticket"]["id"] == sc["id"]
+    assert capturado["ticket"]["mensaje"] == sc["user_input"]
+    assert out["stage"] == "pipeline"
+    assert out["categoria"] == "consulta" and out["escalado_humano"] is False
+    assert out["tool_calls"][0]["tool"] == "buscar_cliente"
+    json.dumps(out)  # debe ser serializable para LangSmith
