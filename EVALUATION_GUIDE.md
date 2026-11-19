@@ -1,205 +1,173 @@
 # Execution & Evaluation Guide
 
-This guide explains how to run the multi-agent customer support system from the terminal ([main.py](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/main.py)), how to evaluate a single agent version or the full pipeline against [data/eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl), and how to use the **Core Quality Targets** to decide which version wins.
+This guide covers running the multi-agent customer support system from the CLI ([main.py](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/main.py)), testing candidate agent versions, enforcing the **Quality Gate** locally against the golden dataset ([data/eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl)), and deploying changes through automated Pull Requests.
 
 ---
 
-## 1. Prerequisites
+## 1. Prerequisites & Versioning Setup
 
-1. Make sure your `.env` file has a valid `OPENAI_API_KEY`:
+1. **Environment Configuration**: Configure your `.env` file:
    ```ini
    LLM_PROVIDER=openai
    OPENAI_API_KEY=sk-...
    OPENAI_MODEL=gpt-4o-mini
 
-   # Optional: LangSmith Tracing & Datasets
+   # Optional: LangSmith Tracing & Dataset Observability
    LANGSMITH_TRACING=true
    LANGSMITH_API_KEY=lsv2_pt_...
    LANGSMITH_PROJECT=soporte-multiagente
    LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com
    LANGSMITH_DATASET_NAME=techstore-support-golden-v1
    ```
-2. On the first run, the SQLite database (`data/soporte.db`) is automatically created and seeded with synthetic Faker records plus the deterministic test customers (`C900`–`C906`) and orders (`P9001`–`P9008`).
-3. **Agent versions** are not set in `.env`. The production version of each agent lives in [src/agents/active_versions.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/active_versions.yaml) (one entry per agent, files under `src/agents/specs/<agent>/<version>.yaml`). The CLI, the pipeline and CI all use it unless you pass `--version` / `--versions`. Model experiments are a new version file with a `model:` block (e.g. `model_name`, `temperature`).
+2. **Database Initialization**: The SQLite database (`data/soporte.db`) is automatically created and seeded on first run with synthetic Faker records and deterministic test cases (`C900`–`C906`, `P9001`–`P9008`).
+3. **Active Agent Versions**: Production versions are managed in [src/agents/active_versions.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/active_versions.yaml) (not in `.env`). Declarative YAML specs live under `src/agents/specs/<agent>/<version>.yaml`. Both the CLI and CI use this file as the single source of truth unless overridden with `--version` or `--versions`.
 
 ---
 
-## 2. Running Tickets (Interactive / Sample Mode)
+## 2. Interactive Mode (Running Tickets)
 
-### 2.1 Send a Single Custom Ticket
-Use `--mensaje`, `--cliente`, and optionally `--pedido`:
-
+### 2.1 Send a Custom Ticket
 ```powershell
-# Example 1: Eligible VIP return
+# Eligible VIP return
 .venv\Scripts\python main.py --mensaje "Quiero devolver mi smartwatch del pedido P9001" --cliente C900 --pedido P9001
 
-# Example 2: Omitted order ID (resolved via CRM pedidos_recientes)
+# Missing order ID (resolved via CRM customer lookup)
 .venv\Scripts\python main.py --mensaje "Quiero devolver el último producto que compré" --cliente C900
 
-# Example 3: Severe VIP complaint with a specific triage version (v2)
-.venv\Scripts\python main.py --mensaje "Es inaceptable que mi pedido P9004 siga retrasado, exijo solución" --cliente C903 --pedido P9004 --version v2
-
-# Example 4: Mix specific agent versions across the pipeline
-.venv\Scripts\python main.py --mensaje "Mis auriculares del pedido P9005 no conectan por bluetooth" --cliente C904 --pedido P9005 --versions "triaje:v2,soporte_tecnico:v1,qa:v1"
+# Test a candidate agent version on a specific message
+.venv\Scripts\python main.py --mensaje "No puedo conectar mis auriculares por bluetooth" --cliente C904 --pedido P9005 --versions "soporte_tecnico:v4"
 ```
 
-### 2.2 Run All 8 Sample Tickets (`src/data/sample_tickets.py`)
+### 2.2 Run Sample Test Suite (8 Default Tickets)
 ```powershell
 .venv\Scripts\python main.py
 ```
 
 ---
 
-## 3. Running Evaluations (`--eval` Mode)
+## 3. Running Automated Evaluations (`--eval`)
 
-All evaluations run against the 23 scenarios in [data/eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl) (mapped in [data/eval_coverage.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_coverage.md)).
+All evaluations run against the 23 golden scenarios in [data/eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl) (mapped in [data/eval_coverage.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_coverage.md)).
 
-### 3.1 Evaluate a Single Agent Version in Isolation (`triaje`)
-Runs only the Triage agent (`v1`, `v2`, or `v3`) without calling the specialists or QA—ideal for fast, low-cost prompt iteration and A/B testing:
-
+### 3.1 Evaluate a Single Agent in Isolation (`triaje`)
+Evaluates only the Triage agent without calling specialists or QA—ideal for fast, low-cost prompt iterations:
 ```powershell
-# Compare triaje v1 vs v2 vs v3 across all scenarios
-.venv\Scripts\python main.py --eval --agent triaje --version v1
-.venv\Scripts\python main.py --eval --agent triaje --version v2
+# Evaluate specific triage version across all scenarios
 .venv\Scripts\python main.py --eval --agent triaje --version v3
 
-# Filter by category or limit number of scenarios
-.venv\Scripts\python main.py --eval --agent triaje --version v3 --category edge_case
-.venv\Scripts\python main.py --eval --agent triaje --version v3 --limit 5
+# Filter by category or subset
+.venv\Scripts\python main.py --eval --agent triaje --version v3 --category edge_case --limit 5
 ```
 
-### 3.2 Evaluate the Full Multi-Agent Pipeline
-Runs the complete `Triaje -> Especialista -> QA (with retry loop & escalation)` pipeline against `data/eval_dataset.jsonl`:
+### 3.2 Full Pipeline & LangSmith Quality Gate
+Runs the full multi-agent pipeline (`Triaje -> Especialista -> QA -> Escalation`) in parallel with the 5 code evaluators, checks for baseline regressions, and automatically saves reports to `data/latest_eval_report.*`:
 
 ```powershell
-# Full pipeline evaluation with the active versions (src/agents/active_versions.yaml)
-.venv\Scripts\python main.py --eval
-
-# Full pipeline evaluation with a specific version across all 5 agents (v1, v2, or v3)
-.venv\Scripts\python main.py --eval --version v3
-
-# Full pipeline evaluation mixing specific agent versions
-.venv\Scripts\python main.py --eval --versions "triaje:v3,devoluciones:v3,soporte_tecnico:v3,consultas:v3,qa:v2"
-
-# Filter by dataset category: happy_path | edge_case | boundary_testing | tool_invocation
-.venv\Scripts\python main.py --eval --category happy_path
-.venv\Scripts\python main.py --eval --category boundary_testing
-
-# Quick smoke evaluation on the first N scenarios
-.venv\Scripts\python main.py --eval --limit 3
-```
-
-### 3.3 Syncing the Golden Dataset to LangSmith (`--sync-dataset`)
-You can upload or update all 23 scenarios from [data/eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl) into your LangSmith Datasets workspace idempotently (using deterministic `uuid5` example IDs so re-running updates existing examples in place without creating duplicates):
-
-```powershell
-# Sync to the default dataset name in config.py / .env (techstore-support-golden-v1)
-.venv\Scripts\python main.py --sync-dataset
-
-# Or specify a custom LangSmith dataset name
-.venv\Scripts\python main.py --sync-dataset --dataset-name "techstore-support-golden-v2"
-```
-
-### 3.4 Running Automated Evaluations in LangSmith (`--eval --langsmith`)
-Runs `langsmith.evaluate()` in the cloud using the 5 deterministic code evaluators (`categoria_match`, `especialista_match`, `escalado_match`, `tool_trajectory_match`, `qa_quality_gate`), executing scenarios concurrently:
-
-```powershell
-# Full evaluation of the production baseline (v3) across all 23 scenarios
-.venv\Scripts\python main.py --eval --langsmith --version v3
-
-# Evaluate with custom concurrency (default: 4 parallel workers)
-.venv\Scripts\python main.py --eval --langsmith --version v3 --max-concurrency 4
-
-# Fast smoke evaluation on a subset of scenarios
-.venv\Scripts\python main.py --eval --langsmith --version v3 --limit 3
-
-# Filter by scenario category
-.venv\Scripts\python main.py --eval --langsmith --version v3 --category boundary_testing
-
-# Compare different agent version combinations directly in LangSmith
-.venv\Scripts\python main.py --eval --langsmith --versions "triaje:v3,devoluciones:v3,soporte_tecnico:v3,consultas:v3,qa:v2"
-```
-
-The CLI outputs the experiment URL, aggregate score table, and failure diagnostics. In the LangSmith web UI under **Datasets & Experiments -> techstore-support-golden-v1 -> Experiments**, you can click any row to inspect the run trace, token usage, and the specific evaluator diagnostic comments (under the **Feedback** tab). Experiments also carry six aggregate (summary) scores: `pass_rate`, `escalation_accuracy`, `mean_qa_politica`, `first_pass_qa_approval_rate`, `avg_tokens` and `avg_latency_seconds`.
-
-### 3.5 Quality Gate (`--fail-on-gate`) and Baseline
-The LangSmith runner evaluates the **Quality Gate**: the absolute thresholds of section 4.2 plus a **regression check against the committed baseline** ([data/baseline_pipeline.json](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/baseline_pipeline.json)). Tolerances: `±0.05` on rates (about one scenario of 23) and `±0.25` on `mean_qa_politica`. Cost metrics (`avg_tokens`, `avg_cost_usd`, `avg_latency_seconds`, `avg_ttft_seconds`) are reported with their delta but never block.
-
-Every local run with `--eval --langsmith` automatically saves the evaluation results to:
-* `data/latest_eval_report.md` (Markdown summary for GitHub PR comments)
-* `data/latest_eval_report.json` (Structured JSON representation)
-
-```powershell
-# Full run, automatically generating data/latest_eval_report.* (exit code 1 if the gate fails)
+# Standard: Evaluate production active versions with Quality Gate enforcement
 .venv\Scripts\python main.py --eval --langsmith --fail-on-gate
 
-# Promote the current run as the new baseline (only if it passes the absolute thresholds)
+# Test a candidate version without changing production yet
+.venv\Scripts\python main.py --eval --langsmith --versions "triaje:v4" --fail-on-gate
+
+# Fast smoke check on a subset (3 scenarios)
+.venv\Scripts\python main.py --eval --langsmith --versions "triaje:v4" --limit 3
+
+# Filter by scenario category: happy_path | edge_case | boundary_testing | tool_invocation
+.venv\Scripts\python main.py --eval --langsmith --category boundary_testing
+
+# Update the official baseline standard (when candidate improves the benchmark)
 .venv\Scripts\python main.py --eval --langsmith --update-baseline
 ```
 
-`--fail-on-gate` and `--update-baseline` require the full dataset (no `--category` / `--limit`).
+*Note: `--fail-on-gate` and `--update-baseline` require the full 23-scenario dataset (cannot combine with `--limit` or `--category`).*
 
-### 3.6 CI: Pull Request Workflow (`.github/workflows/eval-gate.yml`)
-The workflow [eval-gate.yml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/.github/workflows/eval-gate.yml) runs on every PR to `main` that touches agents, pipeline, tools, or data.
-
-**Zero LLM cost in CI**: GitHub Actions does **not** make remote LLM calls. You test and verify 100% locally with total confidence, and CI verifies the committed report in ~15 seconds.
-
-How to run an experiment and open a PR:
-1. Create a branch (e.g. `experiment/triaje-prompt-v4`) and add `src/agents/specs/triaje/v4.yaml` (or edit prompts / models).
-2. Update [src/agents/active_versions.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/active_versions.yaml) to point to the new version (`triaje: v4`).
-3. Run the full evaluation locally with the gate:
-   ```powershell
-   .venv\Scripts\python main.py --eval --langsmith --fail-on-gate
-   ```
-   This verifies the candidate, guarantees no regression occurred, and automatically writes `data/latest_eval_report.md` and `data/latest_eval_report.json`.
-4. (Optional) If the candidate is an improvement that you want as the new standard, update the baseline:
-   ```powershell
-   .venv\Scripts\python main.py --eval --langsmith --update-baseline
-   ```
-5. Commit your code changes together with `data/latest_eval_report.*` (and `data/baseline_pipeline.json` if updated) and open the PR.
-6. **GitHub Actions**:
-   - Runs fast unit tests (`pytest`).
-   - Validates that `data/latest_eval_report.json` matches `active_versions.yaml` and that the Quality Gate passed.
-   - Automatically posts the formatted Markdown report as a comment on the PR with the exact metrics, deltas, and LangSmith experiment link.
-
+### 3.3 Synchronize Dataset to LangSmith (`--sync-dataset`)
+Idempotently updates all 23 scenarios into LangSmith Datasets using deterministic UUIDv5 identifiers:
+```powershell
+.venv\Scripts\python main.py --sync-dataset
+```
 
 ---
 
-## 4. Core Quality Targets — How to Decide Which Version Wins
+## 4. End-to-End Developer Workflow (Step-by-Step)
 
-Instead of weighing 11 metrics equally, the evaluator grades each run against a **3-tier decision hierarchy** (`quality_targets` in the terminal table and JSON report) and emits an overall `quality_gate_passed: true | false` verdict:
+```
+  1. Edit Spec                  2. Evaluate Locally                 3. Promote & PR
+┌──────────────────────┐      ┌─────────────────────────────┐     ┌──────────────────────────────┐
+│ specs/<agent>/v4.yaml│  ──> │ python main.py              │ ──> │ active_versions.yaml (v4)    │
+│ (prompt, model, temp)│      │   --eval --langsmith        │     │ Commit code + reports        │
+└──────────────────────┘      │   --fail-on-gate            │     │ Open PR -> CI posts report   │
+                              └─────────────────────────────┘     └──────────────────────────────┘
+                                            │
+                                            ▼ Auto-generated:
+                                   • data/latest_eval_report.md
+                                   • data/latest_eval_report.json
+```
 
-### 4.1 Decision Hierarchy for Single-Agent `triaje` (`--eval --agent triaje`)
-
-| Decision Priority | Metric | Target | How to Compare `v1` vs `v2` |
-|---|---|---|---|
-| **1. Hard Gate (CRM Lookup)** | `tool_call_accuracy` | **`>= 100.0%`** (`1.00`) | Must pass first. Triage must always call `consultar_cliente` before classifying. |
-| **2. Primary Winner Metric** | `category_accuracy` | **`>= 90.0%`** (`0.90`) | **Pick the version with higher `category_accuracy`.** It determines which specialist receives the ticket. |
-| **3. Tie-Breaker** | `priority_accuracy` | **`>= 85.0%`** (`0.85`) | If two versions tie on `category_accuracy`, pick the one with higher `priority_accuracy`. |
-
-### 4.2 Decision Hierarchy for Full Pipeline (`--eval`)
-
-| Decision Priority | Metric | Target | How to Compare Pipeline Versions |
-|---|---|---|---|
-| **1. Hard Gate (Safety & Escalation)** | `escalation_accuracy` | **`>= 95.0%`** (`0.95`) | Must pass first. Ensures hardware damage, missing KB articles, and pre-shipment cancellations escalate to a human without false escalations. |
-| **1b. Hard Gate (Policy Score)** | `mean_qa_politica` | **`>= 4.50 / 5.00`** | Must pass first. Ensures return windows, ownership checks, and compensation policies are respected. |
-| **2. Primary Winner Metric** | **`pass_rate`** | **`>= 85.0%`** (`0.85`) | **Pick the version with higher `pass_rate`.** Percentage of scenarios where category, routing, tool calls, escalation, and QA all pass together from start to finish. |
-| **3. Tie-Breaker** | `first_pass_qa_approval_rate` | **`>= 80.0%`** (`0.80`) | If two versions tie on `pass_rate`, pick the one where the specialist gets approved by QA on the first try (`intentos_qa == 1`) more often. |
-
-*(Secondary diagnostics such as `tool_trajectory_recall`, `mean_qa_score`, `avg_latency_seconds`, and `avg_tokens` are saved under `diagnostics` in the JSON file for debugging. For the verified `v3` production baseline and version-by-version benchmark results, see [SPECIFICATIONS.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/SPECIFICATIONS.md#L134-L160) and [docs/eval_history/v3_FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/docs/eval_history/v3_FLAWS_SUMMARY.md).)*
+1. **Create the Candidate Version**:
+   - Copy `src/agents/specs/<agent>/v3.yaml` to `v4.yaml` and edit the prompt or `model:` parameters.
+2. **Evaluate Locally (100% Visibility, ~$0.04)**:
+   - Run:
+     ```powershell
+     .venv\Scripts\python main.py --eval --langsmith --versions "<agent>:v4" --fail-on-gate
+     ```
+   - If regressions occur (exit code 1), fix them directly in your editor without polluting git.
+   - If the candidate improves on production and you want to lock in the new standard:
+     ```powershell
+     .venv\Scripts\python main.py --eval --langsmith --versions "<agent>:v4" --update-baseline
+     ```
+3. **Promote the Version**:
+   - Update [src/agents/active_versions.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/active_versions.yaml) to point to `v4`.
+4. **Open Pull Request**:
+   - Commit the spec, `active_versions.yaml`, and the auto-generated `data/latest_eval_report.*` (and `data/baseline_pipeline.json` if updated).
+   - Push your branch and open a PR.
+5. **Zero-LLM CI Verification ([.github/workflows/eval-gate.yml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/.github/workflows/eval-gate.yml))**:
+   - GitHub Actions runs in ~15 seconds at **$0 cost** (no LLM calls in CI):
+     - Executes unit tests (`pytest`).
+     - Validates that `data/latest_eval_report.json` matches `active_versions.yaml` and that the Quality Gate passed.
+     - Automatically posts `data/latest_eval_report.md` as a formatted comment on the PR.
 
 ---
 
-## 5. Saved Output Files (`outputs/`)
+## 5. Core Quality Targets & Decision Hierarchy
 
-Every run saves a timestamped JSON file in `outputs/`:
+The system grades versions against a **3-tier decision hierarchy** rather than treating all metrics equally:
 
-1. **Ticket Runs (`outputs/resultados_YYYYMMDD_HHMMSS.json`)**:
-   - Saves a list of `ResultadoTicket` objects with `clasificacion`, `especialista`, `borrador`, `qa`, `respuesta_final`, `intentos_qa`, `escalado_humano`, `versiones_agentes`, `metricas_agentes` (per-agent latency, tokens, and tool calls), `tool_calls`, `total_tokens`, and `segundos`.
-2. **Evaluation Runs (`outputs/eval_<target>_YYYYMMDD_HHMMSS.json`)**:
-   - Saves an `EvalSummaryReport` object containing:
-     - `quality_gate_passed`: `true` if all Core Quality Targets met their threshold.
-     - `quality_targets`: The 3-tier decision table with `priority`, `metric`, `value`, `target`, `passed`, and `description`.
-     - `pass_rate`, `passed_scenarios`, `total_scenarios`.
-     - `diagnostics`: Secondary metrics (`avg_latency_seconds`, `avg_tokens`, etc.).
-     - `results`: Per-scenario breakdown of checks and tool calls.
+### 5.1 Single-Agent Triage (`--eval --agent triaje`)
+
+| Decision Priority | Metric | Target | How to Compare Candidates |
+|---|---|---:|---|
+| **1. Hard Gate (CRM Lookup)** | `tool_call_accuracy` | **`>= 100.0%`** | Must pass first. Triage must always query CRM before classifying. |
+| **2. Primary Winner Metric** | `category_accuracy` | **`>= 90.0%`** | **Pick the version with higher accuracy.** Routes tickets to specialists. |
+| **3. Tie-Breaker** | `priority_accuracy` | **`>= 85.0%`** | Desempata versiones con igual acierto de categoría. |
+
+### 5.2 Full Pipeline & Quality Gate (`--eval --langsmith --fail-on-gate`)
+
+| Decision Priority | Metric | Target | How to Compare Pipeline Candidates |
+|---|---|---:|---|
+| **1. Hard Gate (Safety & Escalation)** | `escalation_accuracy` | **`>= 95.0%`** | Must pass first. Guarantees mandatory escalations without false alerts. |
+| **1b. Hard Gate (Policy Compliance)** | `mean_qa_politica` | **`>= 4.50 / 5`** | Must pass first. Enforces return windows and ownership rules. |
+| **2. Primary Winner Metric** | **`pass_rate`** | **`>= 85.0%`** | **Pick version with higher pass rate** (% of end-to-end flawless tickets). |
+| **3. Tie-Breaker** | `first_pass_qa_approval_rate`| **`>= 80.0%`** | % of tickets approved by QA on the first try without retries. |
+
+### 5.3 Cost & Performance Metrics (Informative Tracking)
+These metrics are compared against [data/baseline_pipeline.json](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/baseline_pipeline.json) showing percentage delta ($\Delta \%$), but do not block the gate:
+* **`avg_cost_usd`**: Financial cost per ticket calculated from model input/output token pricing.
+* **`avg_tokens`**: Average total tokens consumed per ticket.
+* **`avg_latency_seconds`**: End-to-end elapsed time per ticket.
+* **`avg_ttft_seconds`**: Pre-streaming baseline measuring elapsed time until the user sees the first token.
+
+*(For detailed historical results across `v1` $\rightarrow$ `v2` $\rightarrow$ `v3`, see [IMPROVEMENTS_HISTORY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/IMPROVEMENTS_HISTORY.md) and [docs/eval_history/](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/docs/eval_history/)).*
+
+---
+
+## 6. Output Artifacts & File Structure
+
+| File | Purpose | Version Controlled? |
+|---|---|:---:|
+| `data/latest_eval_report.md` | Markdown summary rendered as a comment on GitHub PRs | ✅ Yes |
+| `data/latest_eval_report.json` | Full structured evaluation output for CI validation | ✅ Yes |
+| `data/baseline_pipeline.json` | Certified production baseline standard for regression checks | ✅ Yes |
+| `data/eval_dataset.jsonl` | 23 golden evaluation test scenarios | ✅ Yes |
+| `outputs/resultados_*.json` | Full ticket trace for interactive runs (`--mensaje`) | ❌ No (`.gitignore`) |
+| `outputs/eval_*.json` | Timestamped local evaluation debug logs | ❌ No (`.gitignore`) |
