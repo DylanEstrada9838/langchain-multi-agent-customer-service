@@ -268,3 +268,38 @@ def test_make_pipeline_target_envuelve_procesar_ticket(monkeypatch):
     assert out["categoria"] == "consulta" and out["escalado_humano"] is False
     assert out["tool_calls"][0]["tool"] == "buscar_cliente"
     json.dumps(out)  # debe ser serializable para LangSmith
+
+
+def test_code_evaluators_replican_checks_locales():
+    from src.pipeline.langsmith_eval import CODE_EVALUATORS
+
+    ref = {
+        "outputs": {
+            "expected_routing": {"categoria": "devolucion", "especialista": "devoluciones", "escalado_humano": False},
+            "expected_tool_calls": [{"agent": "triaje", "tool": "buscar_cliente", "args": {"cliente_id": "C001"}}],
+        }
+    }
+    ok_run = {
+        "outputs": {
+            "stage": "pipeline",
+            "categoria": "devolucion",
+            "especialista": "devoluciones",
+            "escalado_humano": False,
+            "qa": {"veredicto": "aprobado"},
+            "tool_calls": [{"agent": "triaje", "tool": "buscar_cliente", "args": {"cliente_id": "c001"}}],
+        }
+    }
+    assert {e(ok_run, ref)["key"]: e(ok_run, ref)["score"] for e in CODE_EVALUATORS} == {
+        "categoria_match": 1, "especialista_match": 1, "escalado_match": 1,
+        "tool_trajectory_match": 1, "qa_quality_gate": 1,
+    }
+
+    bad_run = {"outputs": {**ok_run["outputs"], "categoria": "consulta", "tool_calls": [], "qa": {"veredicto": "rechazado"}}}
+    scores = {e(bad_run, ref)["key"]: e(bad_run, ref)["score"] for e in CODE_EVALUATORS}
+    assert scores["categoria_match"] == 0
+    assert scores["tool_trajectory_match"] == 0
+    assert scores["qa_quality_gate"] == 0
+
+    qa_run = {"outputs": {"stage": "qa", "stage_checks": {"no_tools_called": True, "rejected_contradictory_draft": True}}}
+    qa = {e(qa_run, ref)["key"]: e(qa_run, ref)["score"] for e in CODE_EVALUATORS}
+    assert qa["categoria_match"] is None and qa["qa_quality_gate"] == 1 and qa["tool_trajectory_match"] == 1

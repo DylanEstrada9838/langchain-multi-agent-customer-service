@@ -9,11 +9,17 @@ from pydantic import BaseModel
 from src import config
 from src.pipeline.evaluator import (
     DEFAULT_DATASET_PATH,
+    _check_tools_match,
     _scenario_to_ticket,
     evaluate_qa_scenario,
     load_eval_dataset,
 )
-from src.pipeline.orchestrator import SistemaMultiagente, construir_sistema, procesar_ticket
+from src.pipeline.orchestrator import (
+    SistemaMultiagente,
+    ToolCallTrace,
+    construir_sistema,
+    procesar_ticket,
+)
 
 _NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 
@@ -158,3 +164,74 @@ def make_pipeline_target(
         }
 
     return target
+
+
+# ---------------------------------------------------------------------------
+# Evaluators de código (deterministas) -- mismos 5 checks que `evaluate_pipeline`
+# ---------------------------------------------------------------------------
+
+def _outputs_of(run: Any) -> dict[str, Any]:
+    return (getattr(run, "outputs", None) or {}) if not isinstance(run, dict) else (run.get("outputs") or {})
+
+
+def _ref_of(example: Any) -> dict[str, Any]:
+    return (getattr(example, "outputs", None) or {}) if not isinstance(example, dict) else (example.get("outputs") or {})
+
+
+def _result(key: str, ok: bool | None, comment: str = "") -> dict[str, Any]:
+    if ok is None:
+        return {"key": key, "score": None, "comment": comment or "n/a (escenario de etapa QA)"}
+    return {"key": key, "score": int(ok), "comment": comment}
+
+
+def categoria_match(run: Any, example: Any) -> dict[str, Any]:
+    out, ref = _outputs_of(run), _ref_of(example)
+    if out.get("stage") == "qa":
+        return _result("categoria_match", None)
+    exp = ref["expected_routing"]["categoria"]
+    return _result("categoria_match", out.get("categoria") == exp, f"esperado={exp} real={out.get('categoria')}")
+
+
+def especialista_match(run: Any, example: Any) -> dict[str, Any]:
+    out, ref = _outputs_of(run), _ref_of(example)
+    if out.get("stage") == "qa":
+        return _result("especialista_match", None)
+    exp = ref["expected_routing"]["especialista"]
+    return _result("especialista_match", out.get("especialista") == exp, f"esperado={exp} real={out.get('especialista')}")
+
+
+def escalado_match(run: Any, example: Any) -> dict[str, Any]:
+    out, ref = _outputs_of(run), _ref_of(example)
+    if out.get("stage") == "qa":
+        return _result("escalado_match", None)
+    exp = ref["expected_routing"]["escalado_humano"]
+    return _result("escalado_match", out.get("escalado_humano") == exp, f"esperado={exp} real={out.get('escalado_humano')}")
+
+
+def tool_trajectory_match(run: Any, example: Any) -> dict[str, Any]:
+    out, ref = _outputs_of(run), _ref_of(example)
+    if out.get("stage") == "qa":
+        ok = bool((out.get("stage_checks") or {}).get("no_tools_called", False))
+        return _result("tool_trajectory_match", ok, "QA no debe llamar herramientas")
+    actual = [ToolCallTrace(**tc) for tc in out.get("tool_calls", [])]
+    ok, recall = _check_tools_match(ref.get("expected_tool_calls", []), actual)
+    return _result("tool_trajectory_match", ok, f"recall={recall}")
+
+
+def qa_quality_gate(run: Any, example: Any) -> dict[str, Any]:
+    out = _outputs_of(run)
+    if out.get("stage") == "qa":
+        ok = all((out.get("stage_checks") or {}).values())
+        return _result("qa_quality_gate", ok, "QA rechaza borrador contradictorio")
+    veredicto = (out.get("qa") or {}).get("veredicto")
+    ok = veredicto in ("aprobado", "reescrito") or bool(out.get("escalado_humano"))
+    return _result("qa_quality_gate", ok, f"veredicto={veredicto}")
+
+
+CODE_EVALUATORS = [
+    categoria_match,
+    especialista_match,
+    escalado_match,
+    tool_trajectory_match,
+    qa_quality_gate,
+]
