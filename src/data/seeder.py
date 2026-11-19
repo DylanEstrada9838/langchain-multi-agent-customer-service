@@ -164,10 +164,9 @@ _INCIDENCIAS_SEED = [
 
 
 def seed_database(session: Session) -> None:
-    """Puebla la base de datos si está vacía (idempotente)."""
+    """Puebla la base de datos si está vacía y garantiza que los escenarios fijos existan siempre."""
     existing = session.scalar(select(func.count()).select_from(ClienteModel))
-    if existing and existing > 0:
-        return
+    has_random_data = bool(existing and existing > 0)
 
     hoy = date.today()
     Faker.seed(config.FAKER_SEED)
@@ -180,16 +179,20 @@ def seed_database(session: Session) -> None:
         _PRODUCTOS_TEMPLATE[: max(config.NUM_PRODUCTOS, 12)], 1
     ):
         sku = f"SKU-{i:03d}"
-        prod = ProductoModel(
-            sku=sku,
-            nombre=nombre,
-            categoria=cat,
-            precio=float(rnd.randint(pmin, pmax)),
-            garantia_meses=gar,
-            devolvible=dev,
-        )
+        prod = session.get(ProductoModel, sku)
+        if prod is None:
+            prod = ProductoModel(
+                sku=sku,
+                nombre=nombre,
+                categoria=cat,
+                precio=float(rnd.randint(pmin, pmax)),
+                garantia_meses=gar,
+                devolvible=dev,
+            )
+            session.add(prod)
+        else:
+            rnd.randint(pmin, pmax)  # mantener avance determinista del RNG
         catalogo[sku] = prod
-        session.add(prod)
 
     def add_cliente(cid: str, nombre: str, segmento: str, alta_dias: int, tickets: list, gastado: float):
         session.merge(
@@ -214,6 +217,9 @@ def seed_database(session: Session) -> None:
         dias_entrega: int | None = None,
         zona: str = "Madrid",
     ):
+        existing_pedido = session.get(PedidoModel, pid)
+        if existing_pedido is not None:
+            return
         compra = hoy - timedelta(days=dias_compra)
         pedido = PedidoModel(
             pedido_id=pid,
@@ -230,36 +236,37 @@ def seed_database(session: Session) -> None:
                 for s in skus
             ],
         )
-        session.merge(pedido)
+        session.add(pedido)
 
-    # 2. Clientes y pedidos aleatorios (Faker)
-    segs = ["Estándar"] * 6 + ["Premium"] * 3 + ["VIP"]
-    for i in range(1, config.NUM_CLIENTES + 1):
-        add_cliente(
-            f"C{i:03d}",
-            fake.name(),
-            rnd.choice(segs),
-            rnd.randint(30, 1500),
-            [
-                {"id": f"T-{rnd.randint(1000, 9999)}", "tipo": rnd.choice(["consulta", "soporte_tecnico", "devolucion"])}
-                for _ in range(rnd.randint(0, 3))
-            ],
-            round(rnd.uniform(50, 5000), 2),
-        )
+    # 2. Clientes y pedidos aleatorios (Faker) — solo en la primera inicialización
+    if not has_random_data:
+        segs = ["Estándar"] * 6 + ["Premium"] * 3 + ["VIP"]
+        for i in range(1, config.NUM_CLIENTES + 1):
+            add_cliente(
+                f"C{i:03d}",
+                fake.name(),
+                rnd.choice(segs),
+                rnd.randint(30, 1500),
+                [
+                    {"id": f"T-{rnd.randint(1000, 9999)}", "tipo": rnd.choice(["consulta", "soporte_tecnico", "devolucion"])}
+                    for _ in range(rnd.randint(0, 3))
+                ],
+                round(rnd.uniform(50, 5000), 2),
+            )
 
-    skus = list(catalogo)
-    for i in range(1, config.NUM_PEDIDOS + 1):
-        cid = f"C{rnd.randint(1, config.NUM_CLIENTES):03d}"
-        dias = rnd.randint(2, 120)
-        estado = "entregado" if dias > 8 else rnd.choice(["procesando", "enviado", "retrasado", "entregado"])
-        add_pedido(
-            f"P{1000 + i}",
-            cid,
-            rnd.sample(skus, rnd.randint(1, 2)),
-            dias,
-            estado,
-            dias - 4 if estado == "entregado" else None,
-        )
+        skus = list(catalogo)
+        for i in range(1, config.NUM_PEDIDOS + 1):
+            cid = f"C{rnd.randint(1, config.NUM_CLIENTES):03d}"
+            dias = rnd.randint(2, 120)
+            estado = "entregado" if dias > 8 else rnd.choice(["procesando", "enviado", "retrasado", "entregado"])
+            add_pedido(
+                f"P{1000 + i}",
+                cid,
+                rnd.sample(skus, rnd.randint(1, 2)),
+                dias,
+                estado,
+                dias - 4 if estado == "entregado" else None,
+            )
 
     # 3. Escenarios deterministas para los tickets de muestra
     add_cliente("C900", "Laura Fernández", "VIP", 1200, [{"id": "T-0001", "tipo": "consulta"}], 4200.0)

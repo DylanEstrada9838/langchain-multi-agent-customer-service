@@ -40,7 +40,7 @@ def _run_eval_cli(args, console: Console):
         report = evaluate_triage_version(scenarios, version=ver)
     else:
         if args.version and not versions:
-            versions = {"triaje": args.version}
+            versions = {k: args.version for k in ("triaje", "devoluciones", "soporte_tecnico", "consultas", "qa")}
         console.rule(f"[bold cyan]Evaluando Pipeline Completo — {len(scenarios)} escenarios")
         report = evaluate_pipeline(scenarios, versions=versions)
 
@@ -107,7 +107,11 @@ def main():
         _run_eval_cli(args, console)
         return
 
-    versions = _parse_versions(args.versions) or ({"triaje": args.version} if args.version else None)
+    versions = _parse_versions(args.versions) or (
+        {k: args.version for k in ("triaje", "devoluciones", "soporte_tecnico", "consultas", "qa")}
+        if args.version
+        else None
+    )
     sistema = construir_sistema(versions=versions)
     tickets = [ticket_personalizado(args.mensaje, args.cliente, args.pedido)] if args.mensaje else TICKETS
 
