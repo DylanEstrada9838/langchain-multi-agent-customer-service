@@ -303,3 +303,17 @@ def test_code_evaluators_replican_checks_locales():
     qa_run = {"outputs": {"stage": "qa", "stage_checks": {"no_tools_called": True, "rejected_contradictory_draft": True}}}
     qa = {e(qa_run, ref)["key"]: e(qa_run, ref)["score"] for e in CODE_EVALUATORS}
     assert qa["categoria_match"] is None and qa["qa_quality_gate"] == 1 and qa["tool_trajectory_match"] == 1
+
+
+def test_summarize_experiment_rows():
+    from src.pipeline.langsmith_eval import summarize_experiment_rows
+
+    rows = [
+        {"scenario_id": "EVAL-001", "scores": {"a": 1, "b": 1}},
+        {"scenario_id": "EVAL-002", "scores": {"a": 0, "b": 1}},
+        {"scenario_id": "EVAL-020", "scores": {"a": None, "b": 1}},
+    ]
+    total, passed, means, failed = summarize_experiment_rows(rows)
+    assert (total, passed) == (3, 2)
+    assert means == {"a": 0.5, "b": 1.0}
+    assert failed == {"EVAL-002": ["a"]}

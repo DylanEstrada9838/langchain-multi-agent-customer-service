@@ -235,3 +235,89 @@ CODE_EVALUATORS = [
     tool_trajectory_match,
     qa_quality_gate,
 ]
+
+
+# ---------------------------------------------------------------------------
+# Runner de experimentos (`--eval --langsmith`)
+# ---------------------------------------------------------------------------
+
+class ExperimentSummary(BaseModel):
+    experiment_name: str
+    dataset_name: str
+    total_examples: int
+    passed_examples: int
+    pass_rate: float
+    metric_means: dict[str, float]
+    failed_scenarios: dict[str, list[str]]
+
+
+def summarize_experiment_rows(rows: list[dict[str, Any]]) -> tuple[int, int, dict[str, float], dict[str, list[str]]]:
+    """Agrega filas `{scenario_id, scores: {key: 0|1|None}}` en pass_rate y media por evaluator."""
+    sums: dict[str, list[int]] = {}
+    failed: dict[str, list[str]] = {}
+    passed = 0
+    for row in rows:
+        scores = {k: v for k, v in row["scores"].items() if v is not None}
+        for k, v in scores.items():
+            sums.setdefault(k, []).append(int(v))
+        bad = [k for k, v in scores.items() if not v]
+        if bad:
+            failed[row["scenario_id"]] = bad
+        passed += int(not bad and bool(scores))
+    means = {k: round(sum(v) / len(v), 4) for k, v in sums.items()}
+    return len(rows), passed, means, failed
+
+
+def run_langsmith_experiment(
+    dataset_name: str | None = None,
+    *,
+    versions: dict[str, str] | None = None,
+    category: str | None = None,
+    limit: int | None = None,
+    max_concurrency: int = 4,
+    experiment_prefix: str | None = None,
+    client: Any = None,
+    llm: Any = None,
+) -> ExperimentSummary:
+    """Ejecuta `langsmith.evaluate()` con el target del pipeline y los evaluators de código."""
+    from langsmith import evaluate
+
+    name = dataset_name or config.LANGSMITH_DATASET_NAME
+    ls_client = client or Client()
+    examples = list(ls_client.list_examples(dataset_name=name))
+    if category:
+        examples = [e for e in examples if (e.metadata or {}).get("category") == category]
+    examples.sort(key=lambda e: (e.metadata or {}).get("scenario_id", ""))
+    if limit:
+        examples = examples[:limit]
+    if not examples:
+        raise ValueError(f"El dataset '{name}' no tiene ejemplos (¿ejecutaste --sync-dataset?).")
+
+    ver_tag = ",".join(f"{k}:{v}" for k, v in (versions or {}).items()) or config.DEFAULT_AGENT_VERSION
+    prefix = experiment_prefix or f"pipeline-{ver_tag}".replace(":", "-").replace(",", "_")
+
+    results = evaluate(
+        make_pipeline_target(versions=versions, llm=llm),
+        data=examples,
+        evaluators=CODE_EVALUATORS,
+        experiment_prefix=prefix,
+        max_concurrency=max_concurrency,
+        client=ls_client,
+        metadata={"versions": versions or config.DEFAULT_AGENT_VERSION, "kind": "code-evaluators"},
+    )
+
+    rows = []
+    for r in results:
+        scores = {er.key: er.score for er in r["evaluation_results"]["results"]}
+        rows.append({"scenario_id": r["example"].metadata.get("scenario_id", str(r["example"].id)), "scores": scores})
+
+    total, passed, means, failed = summarize_experiment_rows(rows)
+    return ExperimentSummary(
+        experiment_name=results.experiment_name,
+        dataset_name=name,
+        total_examples=total,
+        passed_examples=passed,
+        pass_rate=round(passed / max(total, 1), 4),
+        metric_means=means,
+        failed_scenarios=failed,
+    )

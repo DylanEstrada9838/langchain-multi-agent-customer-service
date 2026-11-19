@@ -10,7 +10,7 @@ from src import config
 from src.data import init_db
 from src.data.sample_tickets import TICKETS
 from src.pipeline.evaluator import evaluate_pipeline, evaluate_triage_version, load_eval_dataset
-from src.pipeline.langsmith_eval import sync_dataset_to_langsmith
+from src.pipeline.langsmith_eval import run_langsmith_experiment, sync_dataset_to_langsmith
 from src.pipeline.orchestrator import construir_sistema, procesar_ticket, ticket_personalizado
 
 
@@ -88,6 +88,32 @@ def _run_eval_cli(args, console: Console):
     console.print(f"Reporte de evaluación guardado en {out}")
 
 
+def _run_langsmith_cli(args, console: Console):
+    versions = _parse_versions(args.versions)
+    if args.version and not versions:
+        versions = {k: args.version for k in ("triaje", "devoluciones", "soporte_tecnico", "consultas", "qa")}
+    console.rule("[bold cyan]Experimento LangSmith — Pipeline Completo (evaluators de código)")
+    summary = run_langsmith_experiment(
+        args.dataset_name,
+        versions=versions,
+        category=args.category,
+        limit=args.limit,
+        max_concurrency=args.max_concurrency,
+    )
+    table = Table(title=f"Experimento {summary.experiment_name} (dataset: {summary.dataset_name})")
+    table.add_column("Evaluator")
+    table.add_column("Media")
+    for k, v in summary.metric_means.items():
+        table.add_row(k, f"{v * 100:.1f}%")
+    console.print(table)
+    console.print(
+        f"[bold]pass_rate:[/] {summary.pass_rate * 100:.1f}% "
+        f"({summary.passed_examples}/{summary.total_examples})"
+    )
+    for sid, bad in summary.failed_scenarios.items():
+        console.print(f"[red]FAIL[/] {sid}: {', '.join(bad)}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mensaje", help="Mensaje personalizado del cliente")
@@ -101,6 +127,8 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="Limitar número de escenarios de evaluación")
     ap.add_argument("--sync-dataset", action="store_true", help="Sincroniza data/eval_dataset.jsonl con LangSmith Datasets")
     ap.add_argument("--dataset-name", default=None, help="Nombre del Dataset en LangSmith (por defecto LANGSMITH_DATASET_NAME)")
+    ap.add_argument("--langsmith", action="store_true", help="Con --eval: ejecuta el experimento en LangSmith (evaluators de código)")
+    ap.add_argument("--max-concurrency", type=int, default=4, help="Escenarios en paralelo en el experimento LangSmith")
     args = ap.parse_args()
 
     console = Console()
@@ -113,6 +141,10 @@ def main():
             f"[bold green]Dataset de LangSmith {action_str}:[/] [cyan]{res.dataset_name}[/] "
             f"(id={res.dataset_id}, escenarios={res.total_examples})"
         )
+        return
+
+    if args.eval and args.langsmith:
+        _run_langsmith_cli(args, console)
         return
 
     if args.eval:
