@@ -145,7 +145,7 @@ Instead of weighing 11 metrics equally, the evaluator grades each run against a 
 | **2. Primary Winner Metric** | **`pass_rate`** | **`>= 85.0%`** (`0.85`) | **Pick the version with higher `pass_rate`.** Percentage of scenarios where category, routing, tool calls, escalation, and QA all pass together from start to finish. |
 | **3. Tie-Breaker** | `first_pass_qa_approval_rate` | **`>= 80.0%`** (`0.80`) | If two versions tie on `pass_rate`, pick the one where the specialist gets approved by QA on the first try (`intentos_qa == 1`) more often. |
 
-*(Secondary diagnostics such as `tool_trajectory_recall`, `mean_qa_score`, `avg_latency_seconds`, and `avg_tokens` are saved under `diagnostics` in the JSON file for debugging. For the verified `v3` production baseline and version-by-version benchmark results, see [SPECIFICATIONS.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/SPECIFICATIONS.md#L134-L160) and [src/agents/specs/v3/FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/specs/v3/FLAWS_SUMMARY.md).)*
+*(Secondary diagnostics such as `tool_trajectory_recall`, `mean_qa_score`, `avg_latency_seconds`, and `avg_tokens` are saved under `diagnostics` in the JSON file for debugging. For the verified `v3` production baseline and version-by-version benchmark results, see [SPECIFICATIONS.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/SPECIFICATIONS.md#L134-L160) and [docs/eval_history/v3_FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/docs/eval_history/v3_FLAWS_SUMMARY.md).)*
 
 ---
 

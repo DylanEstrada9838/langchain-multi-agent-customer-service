@@ -47,7 +47,7 @@ def load_spec(
         raise KeyError(f"Agente '{name}' desconocido. Disponibles: {list(AGENT_BINDINGS)}")
 
     ver = version or config.DEFAULT_AGENT_VERSION
-    path = SPECS_DIR / ver / f"{name}.yaml"
+    path = SPECS_DIR / name / f"{ver}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"No existe '{path}'. Versiones disponibles: {list_versions(name)}")
 
@@ -91,5 +91,8 @@ def build_agent(
 
 
 def list_versions(name: str) -> list[str]:
-    """Lista las versiones YAML disponibles para un agente (p. ej. ['v1', 'v2'])."""
-    return sorted(d.name for d in SPECS_DIR.iterdir() if d.is_dir() and (d / f"{name}.yaml").exists())
+    """Lista las versiones YAML disponibles para un agente (p. ej. ['v1', 'v2', 'v3'])."""
+    agent_dir = SPECS_DIR / name
+    if not agent_dir.is_dir():
+        return []
+    return sorted(p.stem for p in agent_dir.glob("*.yaml"))

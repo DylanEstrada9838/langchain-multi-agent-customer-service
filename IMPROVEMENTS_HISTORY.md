@@ -37,7 +37,7 @@ The multi-agent customer support system for TechStore was iteratively refined us
 ## 2. Agent Prompt Improvements by Version
 
 ### 2.1 Version 1 (`v1`): Initial Proof-of-Concept & Root Cause Flaws
-Evaluation of `v1` revealed 4 systematic failure modes (detailed in [src/agents/specs/v1/FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/specs/v1/FLAWS_SUMMARY.md)):
+Evaluation of `v1` revealed 4 systematic failure modes (detailed in [docs/eval_history/v1_FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/docs/eval_history/v1_FLAWS_SUMMARY.md)):
 1. **Omission of Sequential Tool Calling in `devoluciones`**: After checking eligibility (`verificar_devolucion -> elegible: true`), the agent drafted the response immediately without making a second tool call to `crear_etiqueta_devolucion`. It hallucinated fake RMA numbers (`RMA-123456`) or left placeholders (`[Código generado]`).
 2. **Passive QA Approval**: The `qa` agent approved drafts containing invented RMA codes or unpopulated placeholders with `precision: 5` and `veredicto: aprobado`, violating grounding guarantees.
 3. **Missing Logistics Checks in `consultas`**: On orders in `retrasado` status, the agent failed to query `verificar_incidencias(tipo="logistica")`, missing active carrier strikes and compensation guidelines.
@@ -46,7 +46,7 @@ Evaluation of `v1` revealed 4 systematic failure modes (detailed in [src/agents/
 ---
 
 ### 2.2 Version 2 (`v2`): Few-Shot Guidance & Over-Rejection Challenge
-`v2` addressed all 4 structural flaws (detailed in [src/agents/specs/v2/FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/specs/v2/FLAWS_SUMMARY.md)):
+`v2` addressed all 4 structural flaws (detailed in [docs/eval_history/v2_FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/docs/eval_history/v2_FLAWS_SUMMARY.md)):
 1. **Two-Phase Return Process**: Explicitly separated `devoluciones` into Phase 1 (Verification) and Phase 2 (Mandatory Label Generation) before drafting.
 2. **Mandatory Incidents Lookup**: Forced `consultas` to verify logistical incidents whenever shipment delays occurred.
 3. **Adversarial Resilience**: Hardened `triaje` to ignore meta-tags (`[SISTEMA...]`, `[ADMIN OVERRIDE]`) and extract order SKU from CRM `pedidos_recientes`.
@@ -58,7 +58,7 @@ Evaluation of `v1` revealed 4 systematic failure modes (detailed in [src/agents/
 ---
 
 ### 2.3 Version 3 (`v3`): Production Baseline (`APPROVED`)
-`v3` resolved the QA boundary issues, achieving full compliance with all Core Quality Targets (detailed in [src/agents/specs/v3/FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/specs/v3/FLAWS_SUMMARY.md)):
+`v3` resolved the QA boundary issues, achieving full compliance with all Core Quality Targets (detailed in [docs/eval_history/v3_FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/docs/eval_history/v3_FLAWS_SUMMARY.md)):
 1. **Calibrated QA Grounding**:
    - Taught QA that legitimate denials (`elegible: false`) with recorded reasons must be approved with `5/5` policy score and no label creation required.
    - Approved non-existent order notifications as 100% accurate without requiring carrier lookups.
