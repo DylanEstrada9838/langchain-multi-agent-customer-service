@@ -3,6 +3,7 @@ import pytest
 
 from src.data.sample_tickets import TICKETS
 from src.pipeline.evaluator import evaluate_pipeline, load_eval_dataset
+from src.pipeline.langsmith_eval import scenario_to_langsmith_example, sync_dataset_to_langsmith
 from src.pipeline.orchestrator import SistemaMultiagente, procesar_ticket
 from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
 
@@ -171,3 +172,57 @@ def test_telemetria_por_agente_y_evaluador():
     assert all(qt.passed for qt in report.quality_targets)
     assert report.diagnostics["tool_trajectory_recall"] == 1.0
     assert report.diagnostics["category_accuracy"] == 1.0
+
+
+def test_sync_dataset_to_langsmith_idempotente():
+    class FakeObj:
+        def __init__(self, id_val):
+            self.id = id_val
+
+    class FakeLangSmithClient:
+        def __init__(self):
+            self.datasets = {}
+            self.examples = {}
+            self.created_calls = 0
+            self.updated_calls = 0
+
+        def has_dataset(self, *, dataset_name):
+            return dataset_name in self.datasets
+
+        def read_dataset(self, *, dataset_name):
+            return self.datasets[dataset_name]
+
+        def create_dataset(self, *, dataset_name, description=""):
+            ds = FakeObj("ds-123")
+            self.datasets[dataset_name] = ds
+            return ds
+
+        def list_examples(self, *, dataset_id):
+            return list(self.examples.values())
+
+        def create_example(self, *, inputs, outputs, metadata, dataset_id, example_id):
+            self.created_calls += 1
+            self.examples[str(example_id)] = FakeObj(str(example_id))
+
+        def update_example(self, *, example_id, inputs, outputs, metadata):
+            self.updated_calls += 1
+
+    fake_client = FakeLangSmithClient()
+    res1 = sync_dataset_to_langsmith("test-golden-v1", client=fake_client)
+    assert res1.created is True
+    assert res1.total_examples == 23
+    assert fake_client.created_calls == 23
+    assert fake_client.updated_calls == 0
+
+    # Segunda ejecución sobre el mismo dataset: actualiza de forma idempotente sin duplicar
+    res2 = sync_dataset_to_langsmith("test-golden-v1", client=fake_client)
+    assert res2.created is False
+    assert res2.total_examples == 23
+    assert fake_client.created_calls == 23
+    assert fake_client.updated_calls == 23
+
+    sample_row = load_eval_dataset(limit=1)[0]
+    ex = scenario_to_langsmith_example(sample_row, "test-golden-v1")
+    assert ex["inputs"]["id"] == "EVAL-001"
+    assert ex["outputs"]["expected_routing"]["categoria"] == "devolucion"
+    assert ex["metadata"]["scenario_id"] == "EVAL-001"

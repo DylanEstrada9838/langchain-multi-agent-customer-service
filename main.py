@@ -10,6 +10,7 @@ from src import config
 from src.data import init_db
 from src.data.sample_tickets import TICKETS
 from src.pipeline.evaluator import evaluate_pipeline, evaluate_triage_version, load_eval_dataset
+from src.pipeline.langsmith_eval import sync_dataset_to_langsmith
 from src.pipeline.orchestrator import construir_sistema, procesar_ticket, ticket_personalizado
 
 
@@ -98,10 +99,21 @@ def main():
     ap.add_argument("--versions", default=None, help="Mapa de versiones por agente, p. ej. 'triaje:v2,qa:v1'")
     ap.add_argument("--category", default=None, help="Filtrar eval_dataset por categoría (happy_path, edge_case, boundary_testing, tool_invocation)")
     ap.add_argument("--limit", type=int, default=None, help="Limitar número de escenarios de evaluación")
+    ap.add_argument("--sync-dataset", action="store_true", help="Sincroniza data/eval_dataset.jsonl con LangSmith Datasets")
+    ap.add_argument("--dataset-name", default=None, help="Nombre del Dataset en LangSmith (por defecto LANGSMITH_DATASET_NAME)")
     args = ap.parse_args()
 
     console = Console()
     init_db()
+
+    if args.sync_dataset:
+        res = sync_dataset_to_langsmith(dataset_name=args.dataset_name)
+        action_str = "Creado" if res.created else "Actualizado"
+        console.print(
+            f"[bold green]Dataset de LangSmith {action_str}:[/] [cyan]{res.dataset_name}[/] "
+            f"(id={res.dataset_id}, escenarios={res.total_examples})"
+        )
+        return
 
     if args.eval:
         _run_eval_cli(args, console)
