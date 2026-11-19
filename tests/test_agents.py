@@ -6,16 +6,18 @@ from src.llm import LLMFactory, ModelConfig
 
 
 def test_carga_specs_v1():
-    for name in AGENT_BINDINGS:
-        spec = load_spec(name, version="v1")
-        assert isinstance(spec, AgentSpec)
-        assert spec.name == name
-        assert spec.version == "v1"
-        assert "TechStore" in spec.system_prompt
+    for ver in ("v1", "v2", "v3"):
+        for name in AGENT_BINDINGS:
+            spec = load_spec(name, version=ver)
+            assert isinstance(spec, AgentSpec)
+            assert spec.name == name
+            assert spec.version == ver
+            assert "TechStore" in spec.system_prompt
 
 
 def test_versionado_triaje_v1_vs_v2():
-    assert list_versions("triaje") == ["v1", "v2"]
+    versions = list_versions("triaje")
+    assert "v1" in versions and "v2" in versions and "v3" in versions
     v1 = load_spec("triaje", "v1")
     v2 = load_spec("triaje", "v2")
     assert v1.system_prompt != v2.system_prompt

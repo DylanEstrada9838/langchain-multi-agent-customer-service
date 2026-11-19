@@ -58,7 +58,7 @@ def load_spec(
         provider=provider,
         model_name=model_name,
     )
-    prompt = raw["system_prompt"].format(empresa_nombre=config.EMPRESA_NOMBRE).strip()
+    prompt = raw["system_prompt"].replace("{empresa_nombre}", config.EMPRESA_NOMBRE).strip()
 
     return AgentSpec(
         name=name,

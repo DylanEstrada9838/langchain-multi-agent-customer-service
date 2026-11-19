@@ -167,14 +167,17 @@ def evaluate_triage_version(
     results: list[ScenarioEvalResult] = []
     cat_hits = prio_hits = seg_hits = tool_hits = 0
     evaluated = [sc for sc in scenarios if (sc.get("context") or {}).get("stage_under_test") != "qa"]
+    total = len(evaluated)
 
-    for sc in evaluated:
+    for idx, sc in enumerate(evaluated, 1):
+        print(f"  [{idx}/{total}] Evaluando {sc['id']} ({sc['category']}) -> triaje:{version}...", end=" ", flush=True)
         ticket = _scenario_to_ticket(sc)
         ctx = generar_contexto(ticket)
         exp_r = sc["expected_routing"]
         try:
             clasif, m = _run(agent, steps.paso_triaje(ctx), agent_name="triaje", version=version)
         except Exception as exc:
+            print(f"ERROR ({exc})", flush=True)
             results.append(
                 ScenarioEvalResult(
                     scenario_id=sc["id"],
@@ -202,11 +205,13 @@ def evaluate_triage_version(
             "segmento_match": seg_ok,
             "tool_calls_match": tools_ok,
         }
+        passed_sc = all(checks.values())
+        print(f"{'PASS' if passed_sc else 'FAIL'} ({m.segundos}s, {m.total_tokens} tok)", flush=True)
         results.append(
             ScenarioEvalResult(
                 scenario_id=sc["id"],
                 category=sc["category"],
-                passed=all(checks.values()),
+                passed=passed_sc,
                 checks=checks,
                 expected_tools=[e for e in sc["expected_tool_calls"] if isinstance(e, dict) and e.get("agent") == "triaje"],
                 actual_tools=m.tool_calls,
@@ -297,12 +302,20 @@ def evaluate_pipeline(
     qa_prec, qa_pol, qa_tono, qa_comp = [], [], [], []
     end_to_end_count = 0
 
-    for sc in scenarios:
+    total = len(scenarios)
+    for idx, sc in enumerate(scenarios, 1):
+        print(f"  [{idx}/{total}] Evaluando {sc['id']} ({sc['category']})...", end=" ", flush=True)
         if (sc.get("context") or {}).get("stage_under_test") == "qa":
             qa_ver = sys_instance.versiones.get("qa", config.DEFAULT_AGENT_VERSION)
             try:
-                results.append(evaluate_qa_scenario(sc, version=qa_ver, llm=llm))
+                res_qa = evaluate_qa_scenario(sc, version=qa_ver, llm=llm)
+                print(
+                    f"{'PASS' if res_qa.passed else 'FAIL'} (stage=qa, {res_qa.segundos}s, {res_qa.total_tokens} tok)",
+                    flush=True,
+                )
+                results.append(res_qa)
             except Exception as exc:
+                print(f"ERROR ({exc})", flush=True)
                 results.append(
                     ScenarioEvalResult(
                         scenario_id=sc["id"],
@@ -320,6 +333,7 @@ def evaluate_pipeline(
         try:
             res: ResultadoTicket = procesar_ticket(ticket, sys_instance)
         except Exception as exc:
+            print(f"ERROR ({exc})", flush=True)
             results.append(
                 ScenarioEvalResult(
                     scenario_id=sc["id"],
@@ -355,11 +369,19 @@ def evaluate_pipeline(
             "tool_trajectory_match": tools_ok,
             "qa_quality_gate": qa_ok,
         }
+        passed_sc = all(checks.values())
+        failed_keys = [k for k, v in checks.items() if not v]
+        status_str = "PASS" if passed_sc else f"FAIL ({', '.join(failed_keys)})"
+        print(
+            f"{status_str} [{res.clasificacion.categoria}->{res.especialista}, QA={res.qa.veredicto}({res.intentos_qa}), "
+            f"esc={res.escalado_humano}, {res.segundos}s]",
+            flush=True,
+        )
         results.append(
             ScenarioEvalResult(
                 scenario_id=sc["id"],
                 category=sc["category"],
-                passed=all(checks.values()),
+                passed=passed_sc,
                 checks=checks,
                 expected_tools=sc["expected_tool_calls"],
                 actual_tools=res.tool_calls,
