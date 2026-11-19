@@ -24,7 +24,9 @@ def setup_in_memory_db():
 
 
 def test_cliente_y_pedido():
-    assert json.loads(consultar_cliente.invoke({"cliente_id": "C900"}))["segmento"] == "VIP"
+    cliente = json.loads(consultar_cliente.invoke({"cliente_id": "C900"}))
+    assert cliente["segmento"] == "VIP"
+    assert any(p["pedido_id"] == "P9001" for p in cliente["pedidos_recientes"])
     assert "error" in json.loads(consultar_cliente.invoke({"cliente_id": "NOPE"}))
     assert json.loads(consultar_pedido.invoke({"pedido_id": "P9001", "cliente_id": "C900"}))["estado_envio"] == "entregado"
     assert "error" in json.loads(consultar_pedido.invoke({"pedido_id": "X"}))

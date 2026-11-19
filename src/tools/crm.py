@@ -12,6 +12,6 @@ def dump(obj) -> str:
 
 @tool("consultar_cliente", args_schema=ConsultarClienteInput)
 def consultar_cliente(cliente_id: str) -> str:
-    """Consulta el CRM: segmento (VIP/Premium/Estándar), datos de contacto e historial de tickets de un cliente."""
+    """Consulta el CRM: segmento (VIP/Premium/Estándar), datos de contacto, historial de tickets y lista de pedidos recientes del cliente."""
     c = get_repo().get_cliente(cliente_id)
     return dump(c) if c else dump({"error": f"Cliente {cliente_id} no encontrado"})

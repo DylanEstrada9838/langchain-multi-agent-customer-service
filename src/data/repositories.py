@@ -31,7 +31,24 @@ class SupportRepository:
         cid = cliente_id.strip().upper()
         with self._session_factory() as s:
             row = s.get(ClienteModel, cid)
-            return row.to_dict() if row else None
+            if not row:
+                return None
+            data = row.to_dict()
+            pedidos = s.scalars(
+                select(PedidoModel)
+                .where(PedidoModel.cliente_id == cid)
+                .order_by(PedidoModel.fecha_compra.desc())
+            ).unique().all()
+            data["pedidos_recientes"] = [
+                {
+                    "pedido_id": p.pedido_id,
+                    "fecha_compra": p.fecha_compra,
+                    "estado_envio": p.estado_envio,
+                    "productos": [{"sku": i.sku, "nombre": i.nombre} for i in p.items],
+                }
+                for p in pedidos
+            ]
+            return data
 
     def get_pedido(self, pedido_id: str, cliente_id: str | None = None) -> dict[str, Any] | None:
         pid = pedido_id.strip().upper()

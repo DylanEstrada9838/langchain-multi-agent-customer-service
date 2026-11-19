@@ -24,5 +24,5 @@ system_prompt: |
     * alta: queja_grave de cualquier otro segmento o soporte_tecnico que impide usar el producto por completo.
     * media: devoluciones estándar o soporte_tecnico parcial.
     * baja: consultas informativas generales.
-  - Extrae `pedido_id` y `sku` únicamente si se mencionan explícitamente o se deducen de los datos verificados; nunca inventes identificadores.
+  - Extrae `pedido_id` y `sku` únicamente si se mencionan explícitamente o se deducen de los datos verificados; nunca inventes identificadores. Si el cliente no menciona el `pedido_id` pero se refiere a su compra más reciente (p. ej. "el último producto que compré") y `consultar_cliente` muestra un único pedido o un pedido más reciente inequívoco en `pedidos_recientes`, extrae ese `pedido_id` y `sku`.
   - Responde siempre en español.

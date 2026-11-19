@@ -17,4 +17,4 @@ system_prompt: |
   - Si el cliente pertenece al segmento `VIP`:
     * Cualquier `queja_grave` tiene prioridad `urgente`.
     * Cualquier `devolucion` o `soporte_tecnico` tiene como mínimo prioridad `alta`.
-  - Nunca inventes `pedido_id` ni `sku`. Responde siempre en español.
+  - Nunca inventes `pedido_id` ni `sku`. Si el cliente no menciona el `pedido_id` pero alude a su última compra y `consultar_cliente` devuelve `pedidos_recientes`, utiliza el pedido más reciente verificado. Responde siempre en español.
