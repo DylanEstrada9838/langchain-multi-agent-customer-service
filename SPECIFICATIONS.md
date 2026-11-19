@@ -75,10 +75,10 @@ To avoid hallucinations, agents must query persistent data stores through typed 
 
 | Tool Name | System Simulated | Purpose & Output | Authorized Agents |
 |---|---|---|---|
-| `consultar_cliente` | **CRM** | Retrieves customer profile, loyalty segment (`VIP`, `Premium`, `Estándar`), registration date, spend, and ticket history. | Triage, Inquiries & Complaints |
-| `consultar_pedido` | **ERP** | Retrieves order items (SKUs, names, prices), purchase/delivery dates, shipping status (`procesando`, `enviado`, `entregado`, `retrasado`), carrier, tracking code, and region. | Returns, Inquiries & Complaints |
-| `verificar_devolucion` | **Reverse Logistics (Rules)** | Evaluates whether an order item can be returned based on delivery status, product returnability, and days elapsed vs. customer segment window. | Returns |
-| `crear_etiqueta_devolucion` | **Reverse Logistics (RMA)** | Creates and persists an RMA record with a return label URL and carrier. Must be idempotent for the same order + SKU. | Returns |
+| `consultar_cliente` | **CRM** | Retrieves customer profile, loyalty segment (`VIP`, `Premium`, `Estándar`), registration date, spend, ticket history, and recent orders (`pedidos_recientes` with `pedido_id`, date, status, and SKUs). | Triage, Inquiries & Complaints |
+| `consultar_pedido` | **ERP** | Retrieves order items (SKUs, names, prices), purchase/delivery dates, shipping status (`procesando`, `enviado`, `entregado`, `retrasado`), carrier, tracking code, and region. Enforces customer ownership when `cliente_id` is provided. | Returns, Inquiries & Complaints |
+| `verificar_devolucion` | **Reverse Logistics (Rules)** | Evaluates whether an order item can be returned based on customer ownership, delivery status (including pre-shipment cancellation guidance for `procesando` and in-transit guidance for `enviado`/`retrasado`), product returnability, and days elapsed vs. customer segment window. | Returns |
+| `crear_etiqueta_devolucion` | **Reverse Logistics (RMA)** | Creates and persists an RMA record with a return label URL and carrier. Enforces customer ownership and eligibility; idempotent for the same order + SKU. | Returns |
 | `buscar_knowledge_base` | **Technical KB** | Searches troubleshooting manuals by symptom keywords and product category; returns step-by-step instructions. | Tech Support |
 | `verificar_incidencias` | **Incident Status Board** | Lists active service outages (`caida_servicio`) or regional logistics disruptions (`logistica`) with descriptions and ETAs. | Tech Support, Inquiries & Complaints |
 
@@ -88,17 +88,29 @@ To avoid hallucinations, agents must query persistent data stores through typed 
 
 ### 2.3 Restrictions, Guardrails & Non-Functional Requirements
 1. **Least-Privilege Tool Access**: No agent may access tools outside its assigned domain. In particular:
-   - The Triage agent must never attempt to resolve the ticket or query orders/KB.
+   - The Triage agent must never attempt to resolve the ticket or query orders/KB directly (though it can resolve omitted order IDs from the customer's `pedidos_recientes` summary in CRM).
    - The QA agent must have **no tools**; it evaluates strictly against the verified data collected by the specialist and the official company policies.
-2. **Code-Enforced Eligibility on Write Actions**: `crear_etiqueta_devolucion` must re-validate return eligibility in code before creating an RMA. Even if an agent calls the tool for an expired or non-returnable item, the tool must refuse the write and return an explicit error.
-3. **Graceful Tool Failure (No Unhandled Exceptions)**: When a customer ID, order ID, or KB article is not found, tools must return a structured `"not found"` JSON message rather than crashing, so the agent can report the missing information honestly.
-4. **Bounded Retry Loop & Mandatory Human Escalation**:
+2. **Customer Order Ownership & PII Isolation**:
+   - `consultar_pedido`, `verificar_devolucion`, and `crear_etiqueta_devolucion` must verify that `pedido.cliente_id == ticket.cliente_id`. Cross-customer order lookups, third-party PII requests, or return attempts on another customer's order must be denied at the repository/tool layer (`Acceso denegado`).
+3. **Multi-Intent Routing Precedence**:
+   - When a ticket contains multiple intents, Triage must apply deterministic precedence:
+     1. `queja_grave` takes top precedence if there is extreme anger, compensation demands, or cancellation threats.
+     2. An undelivered order inquiry combined with a question about future returns/exchanges routes to `consulta`.
+     3. A product defect where the customer explicitly requests a return/refund routes to `devolucion`; if they request troubleshooting/repair steps, it routes to `soporte_tecnico`.
+     4. All secondary questions must be recorded in `ClasificacionTicket.resumen` and answered by the specialist.
+4. **Code-Enforced Eligibility & Pre-Delivery Cancellation Rules**:
+   - `crear_etiqueta_devolucion` must re-validate return eligibility and ownership in code before creating an RMA.
+   - If an order is not yet delivered (`estado_envio != "entregado"`):
+     - If `estado_envio == "procesando"`, no RMA is issued, and the specialist must escalate to a human (`requiere_escalado = True`) to stop warehouse shipment.
+     - If `estado_envio` is `enviado` or `retrasado`, no RMA can be issued until delivery (or the customer may refuse delivery with the carrier).
+5. **Graceful Tool Failure (No Unhandled Exceptions)**: When a customer ID, order ID, or KB article is not found, tools must return a structured `"not found"` JSON message rather than crashing, so the agent can report the missing information honestly.
+6. **Bounded Retry Loop & Mandatory Human Escalation**:
    - If QA rejects a draft (`veredicto == "rechazado"`), the pipeline must allow at most a configurable number of specialist retry passes (default: `1` retry) with QA's feedback injected.
    - The system must mark a ticket for **Human Escalation** (`escalado_humano = True` with an explicit reason) whenever:
-     1. The specialist flags that the issue cannot be solved with available tools/KB (`requiere_escalado = True`).
+     1. The specialist flags that the issue cannot be solved with available tools/KB (`requiere_escalado = True`, including physical hardware damage or pre-shipment order cancellation in `procesando` status).
      2. QA still rejects the response after the maximum retry attempts.
      3. The Triage step fails unexpectedly (falling back to the Inquiries agent while flagging human review).
-5. **Extensibility Requirements**:
+7. **Extensibility Requirements**:
    - **Agent Versioning**: System prompts and model hyperparameters must live in declarative versioned files (e.g., `v1`, `v2`) decoupled from Python orchestration so teams can A/B test or roll back agent versions.
    - **Provider Agnosticism**: LLM instantiation must be encapsulated behind a factory so switching from OpenAI (`gpt-4o-mini`) to Anthropic or Google Gemini requires only configuration changes.
 
@@ -173,3 +185,7 @@ To consider the system ready, it must pass a deterministic benchmark covering at
 | **6. Delayed Order Inquiry** | `Premium` | Asks where a delayed order is and when it will arrive. | Route to **Inquiries** $\rightarrow$ check order $\rightarrow$ check customer $\rightarrow$ check regional logistics incidents. | Provides tracking details, explains regional carrier delay/ETA, and offers the policy delay coupon. |
 | **7. General Policy Inquiry** | `Estándar` | Asks how many days they have to return an item and refund timing. | Route to **Inquiries** $\rightarrow$ check customer segment $\rightarrow$ answer from official return policy. | Accurately states the 30-day return window and 5–7 business day refund timeframe. |
 | **8. Severe VIP Complaint** | `VIP` | Furious about a delayed laptop; threatens to cancel account. | Triage marks `queja_grave` + `urgente` $\rightarrow$ route to **Inquiries** $\rightarrow$ check order, customer, and regional incidents. | Formal VIP apology (*usted*), explains root cause, and offers full VIP compensation package. |
+| **9. Cross-Customer Ownership Denial** | `Estándar` | Customer `C901` requests order status, owner PII, or an RMA for `C900`'s order `P9001`. | Tool layer verifies `pedido.cliente_id == ticket.cliente_id` and returns `Acceso denegado`. | Refuses disclosure or RMA creation; zero third-party PII or order data leaked. |
+| **10. Multi-Intent Precedence** | `Premium` / `Estándar` | Combines shipping delay + future return inquiry (`consulta`), or product defect + explicit refund demand (`devolucion`). | Triage applies deterministic precedence rules and records all questions in `resumen`. | Routes to primary specialist and answers both primary and secondary questions completely. |
+| **11. Pre-Delivery Cancellation & In-Transit Return** | `Premium` / `VIP` | Requests cancellation/return on an order in `procesando` (`P9008`) or in-transit `retrasado` (`P9004`). | `verificar_devolucion` blocks RMA creation and returns state-specific policy guidance. | `procesando` triggers human escalation (`escalado_humano=True`) to stop shipment; `retrasado` explains waiting for delivery or carrier refusal. |
+| **12. Omitted Order ID Resolution via CRM** | `VIP` / `Estándar` | Asks to return "the last product I bought" without mentioning `pedido_id`. | Triage inspects `pedidos_recientes` from `consultar_cliente` (`C900` $\rightarrow$ `P9001`/`SKU-002`; `C906` $\rightarrow$ `[]`). | Resolves `P9001` automatically when unambiguous, or asks for the order number if `pedidos_recientes` is empty. |

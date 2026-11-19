@@ -268,6 +268,7 @@ def seed_database(session: Session) -> None:
     add_cliente("C903", "Javier Ortega", "VIP", 1500, [{"id": "T-0003", "tipo": "queja"}], 6100.0)
     add_cliente("C904", "Ana Beltrán", "Estándar", 90, [], 79.0)
     add_cliente("C905", "Pedro Navarro", "Premium", 400, [], 340.0)
+    add_cliente("C906", "Elena Gómez", "Estándar", 60, [], 0.0)
 
     add_pedido("P9001", "C900", ["SKU-002"], 14, "entregado", 10)
     add_pedido("P9002", "C901", ["SKU-007"], 50, "entregado", 45)
@@ -276,6 +277,7 @@ def seed_database(session: Session) -> None:
     add_pedido("P9005", "C904", ["SKU-001"], 20, "entregado", 15)
     add_pedido("P9006", "C905", ["SKU-003"], 30, "entregado", 25)
     add_pedido("P9007", "C901", ["SKU-011"], 10, "entregado", 6)
+    add_pedido("P9008", "C902", ["SKU-006"], 1, "procesando", None)
 
     # 4. Knowledge Base e Incidencias
     for art in _KNOWLEDGE_BASE_SEED:

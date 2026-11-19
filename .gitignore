@@ -1,8 +1,37 @@
+# Entorno y secretos
 .env
+.env.*
+!.env.example
+
+# Entornos virtuales
 .venv/
+venv/
+ENV/
+
+# Cachés de Python y testing
 __pycache__/
-*.pyc
-.ipynb_checkpoints/
+*.py[cod]
+*$py.class
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Artefactos de ejecución y bases de datos locales
 outputs/
-data/*.db
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# IDEs y sistema operativo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
