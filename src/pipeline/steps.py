@@ -29,6 +29,8 @@ def paso_resolucion(ctx: str, c: ClasificacionTicket) -> str:
         f"{ctx}\n\nCLASIFICACIÓN DEL TRIAJE: categoría={c.categoria}, prioridad={c.prioridad}, "
         f"segmento={c.segmento_cliente}, pedido={c.pedido_id}, sku={c.sku}\nResumen: {c.resumen}\n\n"
         f"PASO 2 (Resolución, prioridad {c.prioridad}): {_INSTR[c.categoria]}\n"
+        "Si el ticket o el resumen del triaje incluye preguntas secundarias (p. ej. sobre políticas de devolución o envíos), "
+        "respóndelas todas de forma completa además de la solicitud principal.\n"
         "Redacta el borrador de respuesta al cliente y lista los datos que verificaste con herramientas."
     )
 

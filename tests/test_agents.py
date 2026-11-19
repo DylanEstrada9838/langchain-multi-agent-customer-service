@@ -20,6 +20,8 @@ def test_versionado_triaje_v1_vs_v2():
     v2 = load_spec("triaje", "v2")
     assert v1.system_prompt != v2.system_prompt
     assert v2.model_config.temperature == 0.0
+    assert "múltiples intenciones" in v1.system_prompt
+    assert "Precedencia en mensajes con varias intenciones" in v2.system_prompt
 
 
 def test_version_inexistente_lanza_error():

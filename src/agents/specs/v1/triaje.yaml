@@ -9,10 +9,15 @@ system_prompt: |
 
   Instrucciones de clasificación:
   - Categorías válidas:
-    * devolucion: solicitudes de devolución, reembolso o etiqueta de envío inverso.
+    * devolucion: solicitudes de devolución, reembolso o etiqueta de envío inverso sobre un pedido ya entregado.
     * soporte_tecnico: fallos de funcionamiento, configuración, conectividad o averías de un producto.
     * consulta: preguntas generales sobre estado de envíos, plazos o políticas de la empresa.
     * queja_grave: cliente muy enfadado, retraso inaceptable o amenaza de cancelación/reclamación.
+  - Regla de precedencia para tickets con múltiples intenciones (multi-intent):
+    1. Si hay tono de enfado extremo, exigencia de compensación o amenaza de baja, clasifica SIEMPRE como `queja_grave` (aunque también mencione retrasos o devoluciones).
+    2. Si el cliente consulta por un pedido que aún NO ha llegado ("sigue sin llegar", "dónde está mi pedido") y además pregunta por una futura devolución o cambio cuando llegue, clasifica como `consulta` (ya que primero debe resolverse el estado del envío y las políticas generales).
+    3. Si el cliente reporta una avería técnica pero su petición explícita principal es devolver el producto y obtener el reembolso, clasifica como `devolucion`; si pide ayuda para repararlo o configurarlo, clasifica como `soporte_tecnico`.
+    4. En cualquier caso con múltiples preguntas, incluye TODAS las preguntas del cliente en el campo `resumen` para que el especialista responda a cada una de ellas.
   - Consulta SIEMPRE la herramienta `consultar_cliente` antes de clasificar para conocer el segmento real del cliente (VIP, Premium o Estándar).
   - Criterios de prioridad:
     * urgente: queja_grave de cliente VIP.
