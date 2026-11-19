@@ -11,7 +11,14 @@ This guide explains how to run the multi-agent customer support system from the 
    LLM_PROVIDER=openai
    OPENAI_API_KEY=sk-...
    OPENAI_MODEL=gpt-4o-mini
-   AGENT_VERSION=v1
+   AGENT_VERSION=v3
+
+   # Optional: LangSmith Tracing & Datasets
+   LANGSMITH_TRACING=true
+   LANGSMITH_API_KEY=lsv2_pt_...
+   LANGSMITH_PROJECT=soporte-multiagente
+   LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com
+   LANGSMITH_DATASET_NAME=techstore-support-golden-v1
    ```
 2. On the first run, the SQLite database (`data/soporte.db`) is automatically created and seeded with synthetic Faker records plus the deterministic test customers (`C900`–`C906`) and orders (`P9001`–`P9008`).
 
@@ -48,27 +55,31 @@ Use `--mensaje`, `--cliente`, and optionally `--pedido`:
 All evaluations run against the 23 scenarios in [data/eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl) (mapped in [data/eval_coverage.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_coverage.md)).
 
 ### 3.1 Evaluate a Single Agent Version in Isolation (`triaje`)
-Runs only the Triage agent (`v1` or `v2`) without calling the specialists or QA—ideal for fast, low-cost prompt iteration and A/B testing:
+Runs only the Triage agent (`v1`, `v2`, or `v3`) without calling the specialists or QA—ideal for fast, low-cost prompt iteration and A/B testing:
 
 ```powershell
-# Compare triaje v1 vs v2 across all scenarios
+# Compare triaje v1 vs v2 vs v3 across all scenarios
 .venv\Scripts\python main.py --eval --agent triaje --version v1
 .venv\Scripts\python main.py --eval --agent triaje --version v2
+.venv\Scripts\python main.py --eval --agent triaje --version v3
 
 # Filter by category or limit number of scenarios
-.venv\Scripts\python main.py --eval --agent triaje --version v2 --category edge_case
-.venv\Scripts\python main.py --eval --agent triaje --version v2 --limit 5
+.venv\Scripts\python main.py --eval --agent triaje --version v3 --category edge_case
+.venv\Scripts\python main.py --eval --agent triaje --version v3 --limit 5
 ```
 
 ### 3.2 Evaluate the Full Multi-Agent Pipeline
 Runs the complete `Triaje -> Especialista -> QA (with retry loop & escalation)` pipeline against `data/eval_dataset.jsonl`:
 
 ```powershell
-# Full pipeline evaluation with default versions from .env (v1)
+# Full pipeline evaluation with default versions from .env (v3 baseline)
 .venv\Scripts\python main.py --eval
 
-# Full pipeline evaluation overriding specific agent versions
-.venv\Scripts\python main.py --eval --versions "triaje:v2,devoluciones:v1,soporte_tecnico:v1,consultas:v1,qa:v1"
+# Full pipeline evaluation with a specific version across all 5 agents (v1, v2, or v3)
+.venv\Scripts\python main.py --eval --version v3
+
+# Full pipeline evaluation mixing specific agent versions
+.venv\Scripts\python main.py --eval --versions "triaje:v3,devoluciones:v3,soporte_tecnico:v3,consultas:v3,qa:v2"
 
 # Filter by dataset category: happy_path | edge_case | boundary_testing | tool_invocation
 .venv\Scripts\python main.py --eval --category happy_path
@@ -76,6 +87,17 @@ Runs the complete `Triaje -> Especialista -> QA (with retry loop & escalation)` 
 
 # Quick smoke evaluation on the first N scenarios
 .venv\Scripts\python main.py --eval --limit 3
+```
+
+### 3.3 Syncing the Golden Dataset to LangSmith (`--sync-dataset`)
+You can upload or update all 23 scenarios from [data/eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl) into your LangSmith Datasets workspace idempotently (using deterministic `uuid5` example IDs so re-running updates existing examples in place without creating duplicates):
+
+```powershell
+# Sync to the default dataset name in config.py / .env (techstore-support-golden-v1)
+.venv\Scripts\python main.py --sync-dataset
+
+# Or specify a custom LangSmith dataset name
+.venv\Scripts\python main.py --sync-dataset --dataset-name "techstore-support-golden-v2"
 ```
 
 ---
@@ -101,7 +123,7 @@ Instead of weighing 11 metrics equally, the evaluator grades each run against a 
 | **2. Primary Winner Metric** | **`pass_rate`** | **`>= 85.0%`** (`0.85`) | **Pick the version with higher `pass_rate`.** Percentage of scenarios where category, routing, tool calls, escalation, and QA all pass together from start to finish. |
 | **3. Tie-Breaker** | `first_pass_qa_approval_rate` | **`>= 80.0%`** (`0.80`) | If two versions tie on `pass_rate`, pick the one where the specialist gets approved by QA on the first try (`intentos_qa == 1`) more often. |
 
-*(Secondary diagnostics such as `tool_trajectory_recall`, `mean_qa_score`, `avg_latency_seconds`, and `avg_tokens` are still saved under `diagnostics` in the JSON file for debugging, without cluttering the primary decision table.)*
+*(Secondary diagnostics such as `tool_trajectory_recall`, `mean_qa_score`, `avg_latency_seconds`, and `avg_tokens` are saved under `diagnostics` in the JSON file for debugging. For the verified `v3` production baseline and version-by-version benchmark results, see [SPECIFICATIONS.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/SPECIFICATIONS.md#L134-L160) and [src/agents/specs/v3/FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/specs/v3/FLAWS_SUMMARY.md).)*
 
 ---
 
