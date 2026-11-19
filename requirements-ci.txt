@@ -1,0 +1,13 @@
+# Dependencias mínimas para ejecutar el pipeline y el eval-gate en CI (sin jupyter/pandas).
+langchain>=1.0.0
+langchain-core>=1.0.0
+langchain-openai>=1.0.0
+langgraph>=1.0.0
+pydantic>=2.7
+python-dotenv>=1.0.1
+PyYAML>=6.0.1
+Faker>=30.0.0
+SQLAlchemy>=2.0.30
+rich>=13.7
+langsmith>=0.2.0
+pytest>=8.3

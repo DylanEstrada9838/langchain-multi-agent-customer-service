@@ -1,4 +1,5 @@
 """Integración con LangSmith Datasets & Experiments para automatizar evaluaciones."""
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,7 @@ from langsmith import Client
 from pydantic import BaseModel
 
 from src import config
+from src.agents import active_version, get_active_versions
 from src.pipeline.evaluator import (
     DEFAULT_DATASET_PATH,
     _check_tools_match,
@@ -14,6 +16,7 @@ from src.pipeline.evaluator import (
     evaluate_qa_scenario,
     load_eval_dataset,
 )
+from src.pipeline.quality_gate import compute_pipeline_metrics
 from src.pipeline.orchestrator import (
     SistemaMultiagente,
     ToolCallTrace,
@@ -135,7 +138,7 @@ def make_pipeline_target(
         if sc["context"].get("stage_under_test") == "qa":
             # evaluate_qa_scenario necesita expected_routing para construir la clasificación de entrada
             full = next(s for s in load_eval_dataset() if s["id"] == sc["id"])
-            qa_ver = sys_instance.versiones.get("qa", config.DEFAULT_AGENT_VERSION)
+            qa_ver = sys_instance.versiones.get("qa", active_version("qa"))
             res_qa = evaluate_qa_scenario(full, version=qa_ver, llm=llm)
             return {
                 "stage": "qa",
@@ -238,16 +241,61 @@ CODE_EVALUATORS = [
 
 
 # ---------------------------------------------------------------------------
+# Summary evaluators (métricas agregadas del experimento, visibles en la UI de LangSmith)
+# ---------------------------------------------------------------------------
+
+_CODE_KEYS = [ev.__name__ for ev in CODE_EVALUATORS]
+
+
+def _pair_to_row(outputs: dict[str, Any] | None, example_inputs: dict[str, Any], example_outputs: dict[str, Any]) -> dict[str, Any]:
+    """Convierte un par (salida del target, ejemplo) en la fila que consume `compute_pipeline_metrics`."""
+    stage = "qa" if (example_inputs.get("context") or {}).get("stage_under_test") == "qa" else "pipeline"
+    outputs = outputs or {}
+    if not outputs:  # el target lanzó una excepción: todos los checks cuentan como fallo
+        scores: dict[str, Any] = {k: 0 for k in _CODE_KEYS}
+    else:
+        run_like, ref_like = {"outputs": outputs}, {"outputs": example_outputs}
+        scores = {ev.__name__: ev(run_like, ref_like)["score"] for ev in CODE_EVALUATORS}
+    return {"scenario_id": example_inputs.get("id", ""), "stage": stage, "scores": scores, "outputs": outputs}
+
+
+def _make_summary_evaluator(key: str):
+    def evaluator(runs: list[Any], examples: list[Any]) -> dict[str, Any]:
+        rows = [
+            _pair_to_row(getattr(r, "outputs", None), e.inputs or {}, e.outputs or {})
+            for r, e in zip(runs, examples)
+        ]
+        return {"key": key, "score": compute_pipeline_metrics(rows)[key]}
+
+    evaluator.__name__ = key
+    return evaluator
+
+
+SUMMARY_METRICS = (
+    "pass_rate",
+    "escalation_accuracy",
+    "mean_qa_politica",
+    "first_pass_qa_approval_rate",
+    "avg_tokens",
+    "avg_latency_seconds",
+)
+SUMMARY_EVALUATORS = [_make_summary_evaluator(k) for k in SUMMARY_METRICS]
+
+
+# ---------------------------------------------------------------------------
 # Runner de experimentos (`--eval --langsmith`)
 # ---------------------------------------------------------------------------
 
 class ExperimentSummary(BaseModel):
     experiment_name: str
+    experiment_url: str = ""
     dataset_name: str
+    versions: dict[str, str]
     total_examples: int
     passed_examples: int
     pass_rate: float
     metric_means: dict[str, float]
+    metrics: dict[str, float]
     failed_scenarios: dict[str, list[str]]
 
 
@@ -268,6 +316,11 @@ def summarize_experiment_rows(rows: list[dict[str, Any]]) -> tuple[int, int, dic
     return len(rows), passed, means, failed
 
 
+def _ci_metadata() -> dict[str, str]:
+    keys = ("GITHUB_SHA", "GITHUB_REF_NAME", "GITHUB_HEAD_REF", "GITHUB_RUN_ID", "GITHUB_EVENT_NAME")
+    return {k.lower(): os.environ[k] for k in keys if os.environ.get(k)}
+
+
 def run_langsmith_experiment(
     dataset_name: str | None = None,
     *,
@@ -279,7 +332,7 @@ def run_langsmith_experiment(
     client: Any = None,
     llm: Any = None,
 ) -> ExperimentSummary:
-    """Ejecuta `langsmith.evaluate()` con el target del pipeline y los evaluators de código."""
+    """Ejecuta `langsmith.evaluate()` con el target del pipeline, evaluators de código y summary evaluators."""
     from langsmith import evaluate
 
     name = dataset_name or config.LANGSMITH_DATASET_NAME
@@ -293,31 +346,46 @@ def run_langsmith_experiment(
     if not examples:
         raise ValueError(f"El dataset '{name}' no tiene ejemplos (¿ejecutaste --sync-dataset?).")
 
-    ver_tag = ",".join(f"{k}:{v}" for k, v in (versions or {}).items()) or config.DEFAULT_AGENT_VERSION
-    prefix = experiment_prefix or f"pipeline-{ver_tag}".replace(":", "-").replace(",", "_")
+    used_versions = {**get_active_versions(), **(versions or {})}
+    ver_tag = "-".join(sorted(set(used_versions.values()))) if len(set(used_versions.values())) == 1 else "mixed"
+    prefix = experiment_prefix or f"pipeline-{ver_tag}"
 
     results = evaluate(
         make_pipeline_target(versions=versions, llm=llm),
         data=examples,
         evaluators=CODE_EVALUATORS,
+        summary_evaluators=SUMMARY_EVALUATORS,
         experiment_prefix=prefix,
         max_concurrency=max_concurrency,
         client=ls_client,
-        metadata={"versions": versions or config.DEFAULT_AGENT_VERSION, "kind": "code-evaluators"},
+        metadata={"versions": used_versions, "kind": "code-evaluators", **_ci_metadata()},
     )
 
     rows = []
     for r in results:
-        scores = {er.key: er.score for er in r["evaluation_results"]["results"]}
-        rows.append({"scenario_id": r["example"].metadata.get("scenario_id", str(r["example"].id)), "scores": scores})
+        outputs = getattr(r["run"], "outputs", None)
+        ex = r["example"]
+        row = _pair_to_row(outputs, ex.inputs or {}, ex.outputs or {})
+        row["scenario_id"] = (ex.metadata or {}).get("scenario_id", row["scenario_id"])
+        rows.append(row)
+
+    if all(not row["outputs"] for row in rows):
+        raise RuntimeError("Todas las ejecuciones del target fallaron (¿credenciales o red?); no hay resultados que evaluar.")
 
     total, passed, means, failed = summarize_experiment_rows(rows)
+    try:
+        url = ls_client.read_project(project_name=results.experiment_name).url or ""
+    except Exception:
+        url = ""
     return ExperimentSummary(
         experiment_name=results.experiment_name,
+        experiment_url=url,
         dataset_name=name,
+        versions=used_versions,
         total_examples=total,
         passed_examples=passed,
         pass_rate=round(passed / max(total, 1), 4),
         metric_means=means,
+        metrics=compute_pipeline_metrics(rows),
         failed_scenarios=failed,
     )

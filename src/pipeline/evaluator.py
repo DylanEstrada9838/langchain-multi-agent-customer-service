@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from src import config
-from src.agents import build_agent
+from src.agents import active_version, build_agent
 from src.pipeline import steps
 from src.pipeline.context import generar_contexto
 from src.pipeline.orchestrator import (
@@ -306,7 +306,7 @@ def evaluate_pipeline(
     for idx, sc in enumerate(scenarios, 1):
         print(f"  [{idx}/{total}] Evaluando {sc['id']} ({sc['category']})...", end=" ", flush=True)
         if (sc.get("context") or {}).get("stage_under_test") == "qa":
-            qa_ver = sys_instance.versiones.get("qa", config.DEFAULT_AGENT_VERSION)
+            qa_ver = sys_instance.versiones.get("qa", active_version("qa"))
             try:
                 res_qa = evaluate_qa_scenario(sc, version=qa_ver, llm=llm)
                 print(

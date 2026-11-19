@@ -11,7 +11,6 @@ This guide explains how to run the multi-agent customer support system from the 
    LLM_PROVIDER=openai
    OPENAI_API_KEY=sk-...
    OPENAI_MODEL=gpt-4o-mini
-   AGENT_VERSION=v3
 
    # Optional: LangSmith Tracing & Datasets
    LANGSMITH_TRACING=true
@@ -21,6 +20,7 @@ This guide explains how to run the multi-agent customer support system from the 
    LANGSMITH_DATASET_NAME=techstore-support-golden-v1
    ```
 2. On the first run, the SQLite database (`data/soporte.db`) is automatically created and seeded with synthetic Faker records plus the deterministic test customers (`C900`–`C906`) and orders (`P9001`–`P9008`).
+3. **Agent versions** are not set in `.env`. The production version of each agent lives in [src/agents/active_versions.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/active_versions.yaml) (one entry per agent, files under `src/agents/specs/<agent>/<version>.yaml`). The CLI, the pipeline and CI all use it unless you pass `--version` / `--versions`. Model experiments are a new version file with a `model:` block (e.g. `model_name`, `temperature`).
 
 ---
 
@@ -72,7 +72,7 @@ Runs only the Triage agent (`v1`, `v2`, or `v3`) without calling the specialists
 Runs the complete `Triaje -> Especialista -> QA (with retry loop & escalation)` pipeline against `data/eval_dataset.jsonl`:
 
 ```powershell
-# Full pipeline evaluation with default versions from .env (v3 baseline)
+# Full pipeline evaluation with the active versions (src/agents/active_versions.yaml)
 .venv\Scripts\python main.py --eval
 
 # Full pipeline evaluation with a specific version across all 5 agents (v1, v2, or v3)
@@ -120,7 +120,34 @@ Runs `langsmith.evaluate()` in the cloud using the 5 deterministic code evaluato
 .venv\Scripts\python main.py --eval --langsmith --versions "triaje:v3,devoluciones:v3,soporte_tecnico:v3,consultas:v3,qa:v2"
 ```
 
-The CLI outputs the experiment URL, aggregate score table, and failure diagnostics. In the LangSmith web UI under **Datasets & Experiments -> techstore-support-golden-v1 -> Experiments**, you can click any row to inspect the run trace, token usage, and the specific evaluator diagnostic comments (under the **Feedback** tab).
+The CLI outputs the experiment URL, aggregate score table, and failure diagnostics. In the LangSmith web UI under **Datasets & Experiments -> techstore-support-golden-v1 -> Experiments**, you can click any row to inspect the run trace, token usage, and the specific evaluator diagnostic comments (under the **Feedback** tab). Experiments also carry six aggregate (summary) scores: `pass_rate`, `escalation_accuracy`, `mean_qa_politica`, `first_pass_qa_approval_rate`, `avg_tokens` and `avg_latency_seconds`.
+
+### 3.5 Quality Gate (`--fail-on-gate`) and Baseline
+The LangSmith runner always evaluates the **Quality Gate**: the absolute thresholds of section 4.2 plus a **regression check against the committed baseline** ([data/baseline_pipeline.json](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/baseline_pipeline.json)). Tolerances: `±0.05` on rates (about one scenario of 23) and `±0.25` on `mean_qa_politica`. `avg_tokens` and `avg_latency_seconds` are reported with their delta but never block.
+
+```powershell
+# Full run, exit code 1 if the gate fails (0 = pass, 2 = infrastructure error)
+.venv\Scripts\python main.py --eval --langsmith --fail-on-gate
+
+# Also write the report (Markdown for PR comments, JSON for tooling)
+.venv\Scripts\python main.py --eval --langsmith --fail-on-gate --report-md outputs\eval_report.md --report-json outputs\eval_report.json
+
+# Promote the current run as the new baseline (only if it passes the absolute thresholds)
+.venv\Scripts\python main.py --eval --langsmith --update-baseline
+```
+
+`--fail-on-gate` and `--update-baseline` require the full dataset (no `--category` / `--limit`).
+
+### 3.6 CI: Pull Request Workflow (`.github/workflows/eval-gate.yml`)
+The workflow [eval-gate.yml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/.github/workflows/eval-gate.yml) runs on every PR to `main` that touches `src/agents/**`, `src/pipeline/**`, `src/tools/**`, `src/schemas/**`, `src/llm/**`, `data/eval_dataset.jsonl`, `data/baseline_pipeline.json` or `main.py` (triggered by **paths**, not branch names), and manually via *Run workflow* (optional `versions` input).
+
+How to run an experiment through CI:
+1. Create a branch (any name, e.g. `experiment/triaje-prompt-v4`) and add `src/agents/specs/triaje/v4.yaml` (or a `model:` change for a model experiment).
+2. In `src/agents/active_versions.yaml` set `triaje: v4`. **The PR evaluates what is listed there**; merging promotes it.
+3. Open the PR. The job runs unit tests, syncs the CI dataset (`techstore-support-ci`), runs the full evaluation, and posts/updates a PR comment with thresholds, regression vs baseline, tokens and latency, and the LangSmith experiment link.
+4. If the candidate is intentionally better, run `--update-baseline` locally and commit `data/baseline_pipeline.json` in a follow-up commit (CI compares against the baseline of the **base branch**, so a PR cannot hide a regression by editing its own baseline).
+
+One-time repository setup: add the secrets `OPENAI_API_KEY` and `LANGSMITH_API_KEY` (optional repository variable `LANGSMITH_ENDPOINT`, default EU), and enable branch protection on `main` with the **Quality Gate** check required so a failing gate blocks the merge. PRs from forks are skipped because they do not receive secrets.
 
 ---
 

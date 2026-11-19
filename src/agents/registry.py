@@ -14,6 +14,7 @@ from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, Evaluaci
 from src.tools import CONSULTAS_TOOLS, DEVOLUCIONES_TOOLS, QA_TOOLS, SOPORTE_TOOLS, TRIAJE_TOOLS
 
 SPECS_DIR = Path(__file__).resolve().parent / "specs"
+ACTIVE_VERSIONS_PATH = Path(__file__).resolve().parent / "active_versions.yaml"
 
 # Mapa central: nombre_agente -> (herramientas, esquema_salida)
 AGENT_BINDINGS: dict[str, tuple[list[BaseTool], Type[BaseModel]]] = {
@@ -35,6 +36,23 @@ class AgentSpec:
     model_config: ModelConfig
 
 
+def get_active_versions() -> dict[str, str]:
+    """Lee `active_versions.yaml` (versión en producción de cada agente) y valida que esté completo."""
+    data = yaml.safe_load(ACTIVE_VERSIONS_PATH.read_text(encoding="utf-8")) or {}
+    missing = [n for n in AGENT_BINDINGS if n not in data]
+    unknown = [n for n in data if n not in AGENT_BINDINGS]
+    if missing or unknown:
+        raise ValueError(
+            f"active_versions.yaml inválido (faltan: {missing or '-'}, desconocidos: {unknown or '-'})."
+        )
+    return {name: str(data[name]) for name in AGENT_BINDINGS}
+
+
+def active_version(name: str) -> str:
+    """Versión activa del agente `name` según `active_versions.yaml`."""
+    return get_active_versions()[name]
+
+
 def load_spec(
     name: str,
     version: str | None = None,
@@ -46,7 +64,7 @@ def load_spec(
     if name not in AGENT_BINDINGS:
         raise KeyError(f"Agente '{name}' desconocido. Disponibles: {list(AGENT_BINDINGS)}")
 
-    ver = version or config.DEFAULT_AGENT_VERSION
+    ver = version or active_version(name)
     path = SPECS_DIR / name / f"{ver}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"No existe '{path}'. Versiones disponibles: {list_versions(name)}")

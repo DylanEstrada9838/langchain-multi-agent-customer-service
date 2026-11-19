@@ -1,16 +1,20 @@
+
 """CLI: procesa tickets de muestra, un mensaje personalizado o ejecuta la suite de evaluación (`--eval`)."""
 import argparse
 import json
+import sys
 from datetime import datetime
 
 from rich.console import Console
 from rich.table import Table
 
 from src import config
+from src.agents import active_version
 from src.data import init_db
 from src.data.sample_tickets import TICKETS
 from src.pipeline.evaluator import evaluate_pipeline, evaluate_triage_version, load_eval_dataset
 from src.pipeline.langsmith_eval import run_langsmith_experiment, sync_dataset_to_langsmith
+from src.pipeline.quality_gate import evaluate_gate, load_baseline, render_markdown, save_baseline
 from src.pipeline.orchestrator import construir_sistema, procesar_ticket, ticket_personalizado
 
 
@@ -36,7 +40,7 @@ def _run_eval_cli(args, console: Console):
     versions = _parse_versions(args.versions)
 
     if args.agent == "triaje":
-        ver = (versions or {}).get("triaje", args.version or config.DEFAULT_AGENT_VERSION)
+        ver = (versions or {}).get("triaje", args.version or active_version("triaje"))
         console.rule(f"[bold cyan]Evaluando Agente Aislado: triaje ({ver}) — {len(scenarios)} escenarios")
         report = evaluate_triage_version(scenarios, version=ver)
     else:
@@ -88,7 +92,8 @@ def _run_eval_cli(args, console: Console):
     console.print(f"Reporte de evaluación guardado en {out}")
 
 
-def _run_langsmith_cli(args, console: Console):
+def _run_langsmith_cli(args, console: Console) -> int:
+    """Experimento LangSmith + Quality Gate. Devuelve el exit code (0 ok, 1 gate fallido)."""
     versions = _parse_versions(args.versions)
     if args.version and not versions:
         versions = {k: args.version for k in ("triaje", "devoluciones", "soporte_tecnico", "consultas", "qa")}
@@ -99,19 +104,49 @@ def _run_langsmith_cli(args, console: Console):
         category=args.category,
         limit=args.limit,
         max_concurrency=args.max_concurrency,
+        experiment_prefix=args.experiment_prefix,
     )
+
     table = Table(title=f"Experimento {summary.experiment_name} (dataset: {summary.dataset_name})")
     table.add_column("Evaluator")
     table.add_column("Media")
     for k, v in summary.metric_means.items():
         table.add_row(k, f"{v * 100:.1f}%")
     console.print(table)
-    console.print(
-        f"[bold]pass_rate:[/] {summary.pass_rate * 100:.1f}% "
-        f"({summary.passed_examples}/{summary.total_examples})"
+    if summary.experiment_url:
+        console.print(f"Experimento: {summary.experiment_url}")
+
+    baseline = load_baseline(Path(args.baseline) if args.baseline else None)
+    report = evaluate_gate(
+        summary.metrics,
+        baseline=baseline,
+        versions=summary.versions,
+        experiment_name=summary.experiment_name,
+        experiment_url=summary.experiment_url,
+        total_examples=summary.total_examples,
+        failed_scenarios=summary.failed_scenarios,
     )
-    for sid, bad in summary.failed_scenarios.items():
-        console.print(f"[red]FAIL[/] {sid}: {', '.join(bad)}")
+    markdown = render_markdown(report)
+    console.print(markdown, markup=False, highlight=False)
+
+    if args.report_md:
+        Path(args.report_md).write_text(markdown, encoding="utf-8")
+    if args.report_json:
+        Path(args.report_json).write_text(
+            json.dumps(report.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    if args.update_baseline:
+        if not report.targets_passed:
+            console.print("[bold red]No se actualiza el baseline: el run no supera los umbrales absolutos.[/]")
+            return 1
+        out = save_baseline(report, Path(args.baseline) if args.baseline else None)
+        console.print(f"[green]Baseline actualizado:[/] {out}")
+
+    if args.fail_on_gate and not report.passed:
+        console.print("[bold red]QUALITY GATE FAILED[/]")
+        return 1
+    return 0
 
 
 def main():
@@ -129,6 +164,12 @@ def main():
     ap.add_argument("--dataset-name", default=None, help="Nombre del Dataset en LangSmith (por defecto LANGSMITH_DATASET_NAME)")
     ap.add_argument("--langsmith", action="store_true", help="Con --eval: ejecuta el experimento en LangSmith (evaluators de código)")
     ap.add_argument("--max-concurrency", type=int, default=4, help="Escenarios en paralelo en el experimento LangSmith")
+    ap.add_argument("--experiment-prefix", default=None, help="Prefijo del experimento LangSmith (p. ej. pr-12-ab12cd3)")
+    ap.add_argument("--fail-on-gate", action="store_true", help="Con --eval --langsmith: exit code 1 si falla el Quality Gate")
+    ap.add_argument("--baseline", default=None, help="Ruta del baseline JSON (por defecto data/baseline_pipeline.json)")
+    ap.add_argument("--update-baseline", action="store_true", help="Guarda las métricas del run como nuevo baseline")
+    ap.add_argument("--report-md", default=None, help="Escribe el informe del gate en Markdown (comentario de PR)")
+    ap.add_argument("--report-json", default=None, help="Escribe el informe del gate en JSON")
     args = ap.parse_args()
 
     console = Console()
@@ -144,8 +185,14 @@ def main():
         return
 
     if args.eval and args.langsmith:
-        _run_langsmith_cli(args, console)
-        return
+        if (args.fail_on_gate or args.update_baseline) and (args.category or args.limit):
+            ap.error("--fail-on-gate / --update-baseline requieren el dataset completo (sin --category ni --limit).")
+        try:
+            code = _run_langsmith_cli(args, console)
+        except Exception as exc:  # error de infraestructura (credenciales, red, dataset vacío...)
+            console.print(f"[bold red]Error de infraestructura:[/] {exc}")
+            sys.exit(2)
+        sys.exit(code)
 
     if args.eval:
         _run_eval_cli(args, console)

@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from src import config
-from src.agents import AGENT_BINDINGS, build_agent
+from src.agents import AGENT_BINDINGS, active_version, build_agent, get_active_versions
 from src.pipeline import steps
 from src.pipeline.context import generar_contexto
 from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
@@ -79,8 +79,8 @@ def construir_sistema(
     provider: str | None = None,
     model_name: str | None = None,
 ) -> SistemaMultiagente:
-    """Crea los 5 agentes aplicando las versiones y proveedor indicados (o los valores por defecto de .env)."""
-    ver_map = {name: (versions or {}).get(name, config.DEFAULT_AGENT_VERSION) for name in AGENT_BINDINGS}
+    """Crea los 5 agentes con las versiones indicadas; las omitidas usan `active_versions.yaml`."""
+    ver_map = {**get_active_versions(), **(versions or {})}
     make = lambda name: build_agent(
         name, version=ver_map[name], llm=llm, provider=provider, model_name=model_name
     )
@@ -169,8 +169,8 @@ def procesar_ticket(
     ctx = generar_contexto(ticket)
     metricas: list[AgentStepMetrics] = []
 
-    triaje_ver = sistema.versiones.get("triaje", config.DEFAULT_AGENT_VERSION)
-    qa_ver = sistema.versiones.get("qa", config.DEFAULT_AGENT_VERSION)
+    triaje_ver = sistema.versiones.get("triaje", active_version("triaje"))
+    qa_ver = sistema.versiones.get("qa", active_version("qa"))
 
     # Paso 1: Triaje
     triaje_fallido = False
@@ -192,7 +192,7 @@ def procesar_ticket(
 
     # Paso 2 + Paso 3: Especialista -> QA (con bucle de reintento si QA rechaza)
     nombre_esp = _CATEGORIA_A_ESPECIALISTA[clasif.categoria]
-    esp_ver = sistema.versiones.get(nombre_esp, config.DEFAULT_AGENT_VERSION)
+    esp_ver = sistema.versiones.get(nombre_esp, active_version(nombre_esp))
     agente = sistema.especialista(clasif.categoria)
 
     borrador, m_esp = _run(
