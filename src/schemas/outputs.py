@@ -8,12 +8,12 @@ Categoria = Literal["devolucion", "soporte_tecnico", "consulta", "queja_grave"]
 
 class ClasificacionTicket(BaseModel):
     categoria: Categoria = Field(description="Naturaleza del ticket")
-    prioridad: Literal["baja", "media", "alta", "urgente"]
-    segmento_cliente: str = Field(description="Segmento obtenido del CRM: VIP, Premium o Estándar")
-    resumen: str
+    prioridad: Literal["baja", "media", "alta", "urgente"] = Field(default="media")
+    segmento_cliente: str = Field(default="Estándar", description="Segmento obtenido del CRM: VIP, Premium o Estándar")
+    resumen: str = Field(default="", description="Resumen de todas las intenciones o preguntas del cliente")
     pedido_id: Optional[str] = None
     sku: Optional[str] = None
-    justificacion: str
+    justificacion: str = Field(default="", description="Breve justificación de la clasificación y prioridad")
 
 
 class BorradorRespuesta(BaseModel):
@@ -24,10 +24,13 @@ class BorradorRespuesta(BaseModel):
 
 
 class EvaluacionQA(BaseModel):
-    precision: int = Field(ge=1, le=5)
-    politica: int = Field(ge=1, le=5)
-    tono: int = Field(ge=1, le=5)
-    completitud: int = Field(ge=1, le=5)
-    veredicto: Literal["aprobado", "reescrito", "rechazado"]
+    precision: int = Field(default=5, ge=1, le=5)
+    politica: int = Field(default=5, ge=1, le=5)
+    tono: int = Field(default=5, ge=1, le=5)
+    completitud: int = Field(default=5, ge=1, le=5)
+    veredicto: Literal["aprobado", "reescrito", "rechazado"] = Field(default="aprobado")
     respuesta_final: str = Field(description="Respuesta final que verá el cliente")
-    observaciones: str
+    observaciones: str = Field(
+        default="Sin observaciones adicionales.",
+        description="Justificación del veredicto o ajustes realizados",
+    )
