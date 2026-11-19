@@ -8,6 +8,11 @@ POLITICAS = {
         "condiciones": "Producto devolvible, entregado y dentro de plazo. Etiqueta de devolución gratuita.",
         "no_devolvibles": "Productos personalizados y licencias de software.",
         "reembolso": "Reembolso en 5-7 días laborables tras recibir el producto.",
+        "cancelacion_antes_entrega": (
+            "Si el pedido está en estado 'procesando', puede cancelarse antes del envío derivando el caso a un especialista humano "
+            "(requiere_escalado=true). Si ya está en tránsito ('enviado' o 'retrasado'), no puede emitirse una etiqueta RMA todavía: "
+            "el cliente debe esperar a que se entregue para generar la etiqueta o rechazar la entrega al transportista."
+        ),
     },
     "envios": {
         "estandar": "3-5 días laborables",

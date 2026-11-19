@@ -58,6 +58,11 @@ def test_devolucion_elegibilidad():
     assert json.loads(verificar_devolucion.invoke({"pedido_id": "P9001", "sku": "SKU-002"}))["elegible"] is True
     assert json.loads(verificar_devolucion.invoke({"pedido_id": "P9002", "sku": "SKU-007"}))["elegible"] is False
     assert json.loads(verificar_devolucion.invoke({"pedido_id": "P9007", "sku": "SKU-011"}))["elegible"] is False
+    # Pedido aún en tránsito (retrasado): no elegible para RMA hasta entrega
+    no_entregado = json.loads(verificar_devolucion.invoke({"pedido_id": "P9004", "sku": "SKU-005"}))
+    assert no_entregado["elegible"] is False
+    assert "estado: retrasado" in no_entregado["motivo"]
+    assert "rechazar la entrega" in no_entregado["motivo"]
 
 
 def test_etiqueta_solo_si_elegible_y_persiste_en_db():

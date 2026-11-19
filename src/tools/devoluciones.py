@@ -23,7 +23,18 @@ def evaluar_devolucion(pedido_id: str, sku: str, cliente_id: Optional[str] = Non
     if not prod or not prod["devolvible"]:
         return {"elegible": False, "motivo": "Producto no devolvible (personalizado o licencia de software)"}
     if pedido["estado_envio"] != "entregado":
-        return {"elegible": False, "motivo": f"El pedido aún no está entregado (estado: {pedido['estado_envio']})"}
+        estado = pedido["estado_envio"]
+        if estado == "procesando":
+            motivo = (
+                "El pedido aún no está entregado (estado: procesando). No se puede emitir etiqueta RMA, "
+                "pero puede solicitarse la cancelación antes del envío mediante escalado a especialista humano."
+            )
+        else:
+            motivo = (
+                f"El pedido aún no está entregado (estado: {estado}). La etiqueta RMA solo puede emitirse una vez "
+                "entregado el pedido (o el cliente puede rechazar la entrega al transportista)."
+            )
+        return {"elegible": False, "motivo": motivo, "estado_envio": estado}
 
     cliente = repo.get_cliente(pedido["cliente_id"])
     segmento = cliente["segmento"] if cliente else "Estándar"
