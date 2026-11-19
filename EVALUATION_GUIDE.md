@@ -123,14 +123,15 @@ Runs `langsmith.evaluate()` in the cloud using the 5 deterministic code evaluato
 The CLI outputs the experiment URL, aggregate score table, and failure diagnostics. In the LangSmith web UI under **Datasets & Experiments -> techstore-support-golden-v1 -> Experiments**, you can click any row to inspect the run trace, token usage, and the specific evaluator diagnostic comments (under the **Feedback** tab). Experiments also carry six aggregate (summary) scores: `pass_rate`, `escalation_accuracy`, `mean_qa_politica`, `first_pass_qa_approval_rate`, `avg_tokens` and `avg_latency_seconds`.
 
 ### 3.5 Quality Gate (`--fail-on-gate`) and Baseline
-The LangSmith runner always evaluates the **Quality Gate**: the absolute thresholds of section 4.2 plus a **regression check against the committed baseline** ([data/baseline_pipeline.json](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/baseline_pipeline.json)). Tolerances: `±0.05` on rates (about one scenario of 23) and `±0.25` on `mean_qa_politica`. `avg_tokens` and `avg_latency_seconds` are reported with their delta but never block.
+The LangSmith runner evaluates the **Quality Gate**: the absolute thresholds of section 4.2 plus a **regression check against the committed baseline** ([data/baseline_pipeline.json](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/baseline_pipeline.json)). Tolerances: `±0.05` on rates (about one scenario of 23) and `±0.25` on `mean_qa_politica`. Cost metrics (`avg_tokens`, `avg_cost_usd`, `avg_latency_seconds`, `avg_ttft_seconds`) are reported with their delta but never block.
+
+Every local run with `--eval --langsmith` automatically saves the evaluation results to:
+* `data/latest_eval_report.md` (Markdown summary for GitHub PR comments)
+* `data/latest_eval_report.json` (Structured JSON representation)
 
 ```powershell
-# Full run, exit code 1 if the gate fails (0 = pass, 2 = infrastructure error)
+# Full run, automatically generating data/latest_eval_report.* (exit code 1 if the gate fails)
 .venv\Scripts\python main.py --eval --langsmith --fail-on-gate
-
-# Also write the report (Markdown for PR comments, JSON for tooling)
-.venv\Scripts\python main.py --eval --langsmith --fail-on-gate --report-md outputs\eval_report.md --report-json outputs\eval_report.json
 
 # Promote the current run as the new baseline (only if it passes the absolute thresholds)
 .venv\Scripts\python main.py --eval --langsmith --update-baseline
@@ -139,15 +140,28 @@ The LangSmith runner always evaluates the **Quality Gate**: the absolute thresho
 `--fail-on-gate` and `--update-baseline` require the full dataset (no `--category` / `--limit`).
 
 ### 3.6 CI: Pull Request Workflow (`.github/workflows/eval-gate.yml`)
-The workflow [eval-gate.yml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/.github/workflows/eval-gate.yml) runs on every PR to `main` that touches `src/agents/**`, `src/pipeline/**`, `src/tools/**`, `src/schemas/**`, `src/llm/**`, `data/eval_dataset.jsonl`, `data/baseline_pipeline.json` or `main.py` (triggered by **paths**, not branch names), and manually via *Run workflow* (optional `versions` input).
+The workflow [eval-gate.yml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/.github/workflows/eval-gate.yml) runs on every PR to `main` that touches agents, pipeline, tools, or data.
 
-How to run an experiment through CI:
-1. Create a branch (any name, e.g. `experiment/triaje-prompt-v4`) and add `src/agents/specs/triaje/v4.yaml` (or a `model:` change for a model experiment).
-2. In `src/agents/active_versions.yaml` set `triaje: v4`. **The PR evaluates what is listed there**; merging promotes it.
-3. Open the PR. The job runs unit tests, syncs the CI dataset (`techstore-support-ci`), runs the full evaluation, and posts/updates a PR comment with thresholds, regression vs baseline, tokens and latency, and the LangSmith experiment link.
-4. If the candidate is intentionally better, run `--update-baseline` locally and commit `data/baseline_pipeline.json` in a follow-up commit (CI compares against the baseline of the **base branch**, so a PR cannot hide a regression by editing its own baseline).
+**Zero LLM cost in CI**: GitHub Actions does **not** make remote LLM calls. You test and verify 100% locally with total confidence, and CI verifies the committed report in ~15 seconds.
 
-One-time repository setup: add the secrets `OPENAI_API_KEY` and `LANGSMITH_API_KEY` (optional repository variable `LANGSMITH_ENDPOINT`, default EU), and enable branch protection on `main` with the **Quality Gate** check required so a failing gate blocks the merge. PRs from forks are skipped because they do not receive secrets.
+How to run an experiment and open a PR:
+1. Create a branch (e.g. `experiment/triaje-prompt-v4`) and add `src/agents/specs/triaje/v4.yaml` (or edit prompts / models).
+2. Update [src/agents/active_versions.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/active_versions.yaml) to point to the new version (`triaje: v4`).
+3. Run the full evaluation locally with the gate:
+   ```powershell
+   .venv\Scripts\python main.py --eval --langsmith --fail-on-gate
+   ```
+   This verifies the candidate, guarantees no regression occurred, and automatically writes `data/latest_eval_report.md` and `data/latest_eval_report.json`.
+4. (Optional) If the candidate is an improvement that you want as the new standard, update the baseline:
+   ```powershell
+   .venv\Scripts\python main.py --eval --langsmith --update-baseline
+   ```
+5. Commit your code changes together with `data/latest_eval_report.*` (and `data/baseline_pipeline.json` if updated) and open the PR.
+6. **GitHub Actions**:
+   - Runs fast unit tests (`pytest`).
+   - Validates that `data/latest_eval_report.json` matches `active_versions.yaml` and that the Quality Gate passed.
+   - Automatically posts the formatted Markdown report as a comment on the PR with the exact metrics, deltas, and LangSmith experiment link.
+
 
 ---
 

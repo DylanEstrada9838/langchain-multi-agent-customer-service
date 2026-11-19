@@ -130,12 +130,16 @@ def _run_langsmith_cli(args, console: Console) -> int:
     markdown = render_markdown(report)
     console.print(markdown, markup=False, highlight=False)
 
-    if args.report_md:
-        Path(args.report_md).write_text(markdown, encoding="utf-8")
-    if args.report_json:
-        Path(args.report_json).write_text(
-            json.dumps(report.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+    # Guardar informe por defecto en data/latest_eval_report.* (o ruta personalizada)
+    report_md_path = Path(args.report_md) if args.report_md else (config.ROOT / "data" / "latest_eval_report.md")
+    report_md_path.parent.mkdir(parents=True, exist_ok=True)
+    report_md_path.write_text(markdown, encoding="utf-8")
+
+    report_json_path = Path(args.report_json) if args.report_json else (config.ROOT / "data" / "latest_eval_report.json")
+    report_json_path.parent.mkdir(parents=True, exist_ok=True)
+    report_json_path.write_text(
+        json.dumps(report.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     if args.update_baseline:
         if not report.targets_passed:

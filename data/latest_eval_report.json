@@ -1,0 +1,125 @@
+{
+  "passed": true,
+  "targets_passed": true,
+  "regression_passed": true,
+  "baseline_found": true,
+  "experiment_name": "pipeline-v3-5c56e0e6",
+  "experiment_url": "https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/b97bf224-299f-4d83-92e5-1a0baa098a69",
+  "versions": {
+    "triaje": "v3",
+    "devoluciones": "v3",
+    "soporte_tecnico": "v3",
+    "consultas": "v3",
+    "qa": "v3"
+  },
+  "total_examples": 23,
+  "metrics": {
+    "pass_rate": 0.9565,
+    "escalation_accuracy": 0.9545,
+    "mean_qa_politica": 5.0,
+    "first_pass_qa_approval_rate": 1.0,
+    "avg_tokens": 8564.8,
+    "avg_cost_usd": 0.00185,
+    "avg_latency_seconds": 10.2,
+    "avg_ttft_seconds": 10.2
+  },
+  "targets": [
+    {
+      "priority": "1. Hard Gate (Safety & Escalation)",
+      "metric": "escalation_accuracy",
+      "value": 0.9545,
+      "target": 0.95,
+      "passed": true,
+      "description": "No fallar en escalados obligatorios ni falsos escalados"
+    },
+    {
+      "priority": "1b. Hard Gate (Policy Score / 5)",
+      "metric": "mean_qa_politica",
+      "value": 5.0,
+      "target": 4.5,
+      "passed": true,
+      "description": "Cumplimiento estricto de políticas y titularidad"
+    },
+    {
+      "priority": "2. Primary Winner Metric",
+      "metric": "pass_rate",
+      "value": 0.9565,
+      "target": 0.85,
+      "passed": true,
+      "description": "% de escenarios resueltos de principio a fin sin ningún fallo"
+    },
+    {
+      "priority": "3. Tie-Breaker",
+      "metric": "first_pass_qa_approval_rate",
+      "value": 1.0,
+      "target": 0.8,
+      "passed": true,
+      "description": "% de tickets aprobados por QA a la primera sin reintento"
+    }
+  ],
+  "comparisons": [
+    {
+      "metric": "pass_rate",
+      "value": 0.9565,
+      "baseline": 0.9565,
+      "delta": 0.0,
+      "tolerance": 0.05,
+      "regressed": false
+    },
+    {
+      "metric": "escalation_accuracy",
+      "value": 0.9545,
+      "baseline": 0.9545,
+      "delta": 0.0,
+      "tolerance": 0.05,
+      "regressed": false
+    },
+    {
+      "metric": "first_pass_qa_approval_rate",
+      "value": 1.0,
+      "baseline": 1.0,
+      "delta": 0.0,
+      "tolerance": 0.05,
+      "regressed": false
+    },
+    {
+      "metric": "mean_qa_politica",
+      "value": 5.0,
+      "baseline": 5.0,
+      "delta": 0.0,
+      "tolerance": 0.25,
+      "regressed": false
+    }
+  ],
+  "costs": [
+    {
+      "metric": "avg_tokens",
+      "value": 8564.8,
+      "baseline": 8564.8,
+      "delta_pct": 0.0
+    },
+    {
+      "metric": "avg_cost_usd",
+      "value": 0.00185,
+      "baseline": 0.00185,
+      "delta_pct": 0.0
+    },
+    {
+      "metric": "avg_latency_seconds",
+      "value": 10.2,
+      "baseline": 10.2,
+      "delta_pct": 0.0
+    },
+    {
+      "metric": "avg_ttft_seconds",
+      "value": 10.2,
+      "baseline": 10.2,
+      "delta_pct": 0.0
+    }
+  ],
+  "failed_scenarios": {
+    "EVAL-018": [
+      "escalado_match"
+    ]
+  }
+}

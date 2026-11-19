@@ -1,8 +1,8 @@
 name: eval-gate
 
-# Evalúa el pipeline multiagente contra el golden dataset cuando una PR toca agentes, tools,
-# pipeline o el dataset. Aplica umbrales absolutos + regresión frente al baseline de la rama base
-# y publica el resultado como comentario de la PR.
+# Valida el informe de evaluación localmente generado (`data/latest_eval_report.json`),
+# verifica tests unitarios y publica el reporte como comentario en la Pull Request.
+# NO realiza llamadas de inferencia LLM en CI (coste cero, ejecución en segundos).
 on:
   pull_request:
     branches: [main]
@@ -12,19 +12,12 @@ on:
       - "src/tools/**"
       - "src/schemas/**"
       - "src/llm/**"
-      - "data/eval_dataset.jsonl"
-      - "data/baseline_pipeline.json"
+      - "data/**"
       - "main.py"
       - "requirements-ci.txt"
       - ".github/workflows/eval-gate.yml"
   workflow_dispatch:
-    inputs:
-      versions:
-        description: "Opcional: mapa de versiones, p. ej. 'triaje:v4,qa:v3' (vacío = active_versions.yaml)"
-        required: false
-        default: ""
 
-# Un run por PR: un push nuevo cancela el anterior para no pagar evaluaciones obsoletas.
 concurrency:
   group: eval-gate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -35,25 +28,11 @@ permissions:
 
 jobs:
   eval-gate:
-    name: Quality Gate
+    name: Quality Gate & PR Report
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    # Las PRs desde forks no reciben secrets: se omite (el repo es público).
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-      LANGSMITH_ENDPOINT: ${{ vars.LANGSMITH_ENDPOINT || 'https://eu.api.smith.langchain.com' }}
-      LANGSMITH_PROJECT: soporte-multiagente-ci
-      # Dataset propio de CI, sincronizado desde data/eval_dataset.jsonl del commit evaluado
-      # (no toca el dataset "golden" usado en local).
-      LANGSMITH_DATASET_NAME: techstore-support-ci
-      PYTHONUNBUFFERED: "1"
-      PYTHONIOENCODING: utf-8
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -65,61 +44,43 @@ jobs:
         run: pip install -r requirements-ci.txt
 
       - name: Unit tests
-        # Rápidos y sin llamadas reales al LLM: fallan antes de gastar tokens.
         run: python -m pytest -q
         env:
           OPENAI_API_KEY: ci-placeholder
 
-      - name: Baseline de la rama base
-        id: baseline
+      - name: Validate Evaluation Report
+        id: validate
         run: |
-          # Se compara contra el baseline de la rama base, no el de la PR, para que una PR
-          # no pueda esconder una regresión modificando su propio baseline.
-          if [ "${{ github.event_name }}" = "pull_request" ] && \
-             git cat-file -e "origin/${{ github.base_ref }}:data/baseline_pipeline.json" 2>/dev/null; then
-            git show "origin/${{ github.base_ref }}:data/baseline_pipeline.json" > baseline_base.json
-            echo "path=baseline_base.json" >> "$GITHUB_OUTPUT"
-          elif [ -f data/baseline_pipeline.json ]; then
-            echo "path=data/baseline_pipeline.json" >> "$GITHUB_OUTPUT"
-          else
-            echo "path=" >> "$GITHUB_OUTPUT"
-          fi
+          python -c "
+          import json, sys
+          from pathlib import Path
+          import yaml
 
-      - name: Sync CI dataset
-        run: python main.py --sync-dataset
+          report_path = Path('data/latest_eval_report.json')
+          if not report_path.exists():
+              print('::error::No se encontro data/latest_eval_report.json. Ejecuta la evaluacion localmente y haz commit del informe.')
+              sys.exit(1)
 
-      - name: Run evaluation and enforce quality gate
-        id: gate
-        env:
-          VERSIONS_INPUT: ${{ inputs.versions }}
-          BASELINE_PATH: ${{ steps.baseline.outputs.path }}
-          PREFIX_RAW: ${{ github.event_name == 'pull_request' && format('pr-{0}-{1}', github.event.pull_request.number, github.event.pull_request.head.sha) || format('manual-{0}', github.run_id) }}
-        run: |
-          PREFIX="${PREFIX_RAW:0:40}"
-          ARGS=(--eval --langsmith --fail-on-gate --experiment-prefix "$PREFIX" \
-                --report-md eval_report.md --report-json eval_report.json)
-          if [ -n "$BASELINE_PATH" ]; then
-            ARGS+=(--baseline "$BASELINE_PATH")
-          fi
-          if [ -n "$VERSIONS_INPUT" ]; then
-            ARGS+=(--versions "$VERSIONS_INPUT")
-          fi
-          python main.py "${ARGS[@]}"
+          report = json.loads(report_path.read_text(encoding='utf-8'))
+          active = yaml.safe_load(Path('src/agents/active_versions.yaml').read_text(encoding='utf-8'))
+
+          if report.get('versions') != active:
+              print(f'::error::El informe corresponde a versiones {report.get(\"versions\")}, pero active_versions.yaml tiene {active}. Ejecuta la evaluacion localmente con las versiones activas.')
+              sys.exit(1)
+
+          if not report.get('passed'):
+              print('::error::El informe indica que el Quality Gate NO fue superado (umbrales absolutos o regresion detectada).')
+              sys.exit(1)
+
+          print('✅ Informe de evaluacion valido y Quality Gate superado.')
+          "
 
       - name: Job summary
         if: always()
         run: |
-          if [ -f eval_report.md ]; then cat eval_report.md >> "$GITHUB_STEP_SUMMARY"; fi
-
-      - name: Upload report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: eval-gate-report
-          path: |
-            eval_report.md
-            eval_report.json
-          if-no-files-found: ignore
+          if [ -f data/latest_eval_report.md ]; then
+            cat data/latest_eval_report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Comment on PR
         if: always() && github.event_name == 'pull_request'
@@ -129,10 +90,10 @@ jobs:
             const fs = require('fs');
             const marker = '<!-- eval-gate-report -->';
             let body;
-            if (fs.existsSync('eval_report.md')) {
-              body = fs.readFileSync('eval_report.md', 'utf8');
+            if (fs.existsSync('data/latest_eval_report.md')) {
+              body = fs.readFileSync('data/latest_eval_report.md', 'utf8');
             } else {
-              body = `${marker}\n## ⚠️ Eval Quality Gate — sin informe\n\nEl job terminó antes de generar resultados (error de infraestructura o tests fallidos). Revisa el [log del job](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}).\n`;
+              body = `${marker}\n## ⚠️ Eval Quality Gate — sin informe\n\nNo se encontró \`data/latest_eval_report.md\`. Ejecuta la evaluación localmente (\`python main.py --eval --langsmith --fail-on-gate\`) y haz commit del informe.\n`;
             }
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;
