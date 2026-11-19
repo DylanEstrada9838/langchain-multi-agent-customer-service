@@ -1,0 +1,28 @@
+# --- Núcleo LangChain (create_agent vive en langchain>=1.0) ---
+langchain>=1.0.0
+langchain-core>=1.0.0
+langchain-openai>=1.0.0
+langgraph>=1.0.0            # runtime de create_agent (se instala con langchain, se fija explícitamente)
+
+# --- Tipado y configuración ---
+pydantic>=2.7
+python-dotenv>=1.0.1
+PyYAML>=6.0.1
+
+# --- Datos sintéticos y persistencia (SQLite por defecto, compatible con PostgreSQL) ---
+Faker>=30.0.0
+SQLAlchemy>=2.0.30
+
+# --- Notebook ---
+jupyter>=1.1.0
+ipykernel>=6.29
+
+# --- Utilidades de presentación ---
+rich>=13.7                  # salida bonita en consola/notebook
+pandas>=2.2                 # tablas de resultados de QA
+
+# --- Observabilidad (opcional) ---
+langsmith>=0.2.0
+
+# --- Testing ---
+pytest>=8.3
