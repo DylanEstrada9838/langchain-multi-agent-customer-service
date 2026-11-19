@@ -1,22 +1,35 @@
+from langchain_core.messages import AIMessage
 import pytest
 
 from src.data.sample_tickets import TICKETS
+from src.pipeline.evaluator import evaluate_pipeline, load_eval_dataset
 from src.pipeline.orchestrator import SistemaMultiagente, procesar_ticket
 from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
 
 
 class Stub:
-    def __init__(self, responses, name):
+    def __init__(self, responses, name, tool_calls=None, tokens=(50, 20)):
         self._responses = responses if isinstance(responses, list) else [responses]
         self.name = name
         self.calls = 0
         self.prompts: list[str] = []
+        self._tool_calls = tool_calls or []
+        self._tokens = tokens
 
     def invoke(self, payload, **_k):
         self.prompts.append(payload["messages"][0]["content"])
         idx = min(self.calls, len(self._responses) - 1)
         self.calls += 1
-        return {"structured_response": self._responses[idx]}
+        ai_msg = AIMessage(
+            content="ok",
+            tool_calls=self._tool_calls,
+            usage_metadata={
+                "input_tokens": self._tokens[0],
+                "output_tokens": self._tokens[1],
+                "total_tokens": self._tokens[0] + self._tokens[1],
+            },
+        )
+        return {"structured_response": self._responses[idx], "messages": [ai_msg]}
 
 
 def _sistema(categoria, borradores=None, qas=None):
@@ -112,3 +125,49 @@ def test_fallback_si_falla_triaje_marca_escalado():
     assert r.clasificacion.categoria == "consulta" and r.especialista == "consultas"
     assert r.escalado_humano is True
     assert "Fallo en agente de triaje" in r.motivo_escalado
+
+
+def test_telemetria_por_agente_y_evaluador():
+    clasif = ClasificacionTicket(
+        categoria="devolucion", prioridad="media", segmento_cliente="VIP", pedido_id="P9001", sku="SKU-002", resumen="r", justificacion="j"
+    )
+    borr = BorradorRespuesta(respuesta_cliente="RMA-00001 generado")
+    qa = EvaluacionQA(
+        precision=5, politica=5, tono=5, completitud=5, veredicto="aprobado", respuesta_final="final", observaciones="ok"
+    )
+    t_stub = Stub(
+        clasif, "triaje",
+        tool_calls=[{"name": "consultar_cliente", "args": {"cliente_id": "C900"}, "id": "tc1"}],
+        tokens=(100, 30),
+    )
+    d_stub = Stub(
+        borr, "devoluciones",
+        tool_calls=[
+            {"name": "consultar_pedido", "args": {"pedido_id": "P9001", "cliente_id": "C900"}, "id": "tc2"},
+            {"name": "verificar_devolucion", "args": {"pedido_id": "P9001", "sku": "SKU-002", "cliente_id": "C900"}, "id": "tc3"},
+            {"name": "crear_etiqueta_devolucion", "args": {"pedido_id": "P9001", "sku": "SKU-002", "motivo": "x", "cliente_id": "C900"}, "id": "tc4"},
+        ],
+        tokens=(200, 50),
+    )
+    qa_stub = Stub(qa, "qa", tool_calls=[], tokens=(150, 40))
+    sistema = SistemaMultiagente(t_stub, d_stub, d_stub, d_stub, qa_stub, versiones={"triaje": "v2", "devoluciones": "v1", "qa": "v1"})
+
+    r = procesar_ticket(TICKETS[0], sistema)
+    assert len(r.metricas_agentes) == 3
+    assert [m.agent for m in r.metricas_agentes] == ["triaje", "devoluciones", "qa"]
+    assert r.metricas_agentes[0].version == "v2"
+    assert [tc.tool for tc in r.tool_calls] == [
+        "consultar_cliente", "consultar_pedido", "verificar_devolucion", "crear_etiqueta_devolucion"
+    ]
+    assert r.total_tokens == (130 + 250 + 190)
+
+    # Verifica evaluate_pipeline sobre EVAL-001 con el sistema stub
+    eval_001 = load_eval_dataset(limit=1)
+    report = evaluate_pipeline(eval_001, sistema=sistema)
+    assert report.total_scenarios == 1
+    assert report.passed_scenarios == 1
+    assert report.pass_rate == 1.0
+    assert report.quality_gate_passed is True
+    assert all(qt.passed for qt in report.quality_targets)
+    assert report.diagnostics["tool_trajectory_recall"] == 1.0
+    assert report.diagnostics["category_accuracy"] == 1.0
