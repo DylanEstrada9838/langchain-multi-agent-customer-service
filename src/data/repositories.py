@@ -25,6 +25,13 @@ def _tokens(text: str) -> set[str]:
     return set(re.findall(r"\w+", text.lower()))
 
 
+_ERROR_CODE = re.compile(r"\b(?!sku\b|kb\b)([a-z]{1,8})\s*[-‐‑–]\s*(\d+[a-z]?)\b", re.IGNORECASE)
+
+
+def _error_codes(text: str) -> set[str]:
+    return {f"{prefix.upper()}-{number.upper()}" for prefix, number in _ERROR_CODE.findall(text)}
+
+
 class SupportRepository:
     """Repositorio de acceso a CRM, ERP, Catálogo, Knowledge Base, Incidencias y RMAs."""
 
@@ -78,6 +85,7 @@ class SupportRepository:
 
     def buscar_kb(self, consulta: str, categoria: str | None = None, limit: int = 3) -> list[dict[str, Any]]:
         q = _tokens(consulta)
+        codes = _error_codes(consulta)
         with self._session_factory() as s:
             stmt = select(KnowledgeBaseModel)
             if categoria:
@@ -86,7 +94,12 @@ class SupportRepository:
 
         scored: list[tuple[int, dict[str, Any]]] = []
         for art in rows:
-            score = len(q & _tokens(" ".join(art.palabras_clave))) + len(q & _tokens(art.sintoma))
+            keywords = " ".join(art.palabras_clave)
+            if codes:
+                article_codes = _error_codes(f"{art.sintoma} {keywords}")
+                if not codes.issubset(article_codes):
+                    continue
+            score = len(q & _tokens(keywords)) + len(q & _tokens(art.sintoma))
             if score:
                 scored.append((score, art.to_dict()))
         scored.sort(key=lambda x: -x[0])

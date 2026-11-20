@@ -74,6 +74,32 @@ def test_kb_e_incidencias():
     assert inc["incidencias_activas"][0]["id"] == "INC-001"
 
 
+def test_kb_excludes_articles_without_the_reported_error_code():
+    query = "error E-404 en la pantalla táctil y no calienta el agua"
+    result = json.loads(buscar_knowledge_base.invoke({"consulta": query, "categoria": "domotica"}))
+    assert result["resultados"] == []
+
+
+def test_kb_returns_articles_with_the_exact_error_code():
+    from sqlalchemy.orm import Session
+
+    from src.data.models import KnowledgeBaseModel
+
+    with Session(get_repo().engine) as session:
+        for error_code in ("E-404", "E-4040"):
+            session.add(KnowledgeBaseModel(
+                id=error_code,
+                categoria="domotica",
+                sintoma=f"Cafetera: error {error_code}",
+                palabras_clave=["cafetera"],
+                pasos_solucion=["Consultar el manual del fabricante"],
+            ))
+        session.commit()
+
+    result = json.loads(buscar_knowledge_base.invoke({"consulta": "cafetera error e - 404", "categoria": "domotica"}))
+    assert [article["id"] for article in result["resultados"]] == ["E-404"]
+
+
 def test_devolucion_elegibilidad():
     assert invoke_scoped(verificar_devolucion, {"pedido_id": "P9001", "sku": "SKU-002"})["elegible"] is True
     assert invoke_scoped(verificar_devolucion, {"pedido_id": "P9002", "sku": "SKU-007"}, "C901")["elegible"] is False
