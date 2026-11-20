@@ -1,15 +1,16 @@
 from datetime import date
 from typing import Optional
 
-from langchain_core.tools import tool
+from langchain.tools import ToolRuntime, tool
 
 from src import config
 from src.data import get_repo
+from src.pipeline.context import TicketContext
 from src.schemas.tool_inputs import CrearEtiquetaInput, VerificarDevolucionInput
-from src.tools.crm import dump
+from src.tools.crm import dump, ticket_customer
 
 
-def evaluar_devolucion(pedido_id: str, sku: str, cliente_id: Optional[str] = None) -> dict:
+def evaluar_devolucion(pedido_id: str, sku: str, cliente_id: str) -> dict:
     repo = get_repo()
     pedido = repo.get_pedido(pedido_id, cliente_id=cliente_id)
     sku = sku.strip().upper()
@@ -52,16 +53,22 @@ def evaluar_devolucion(pedido_id: str, sku: str, cliente_id: Optional[str] = Non
 
 
 @tool("verificar_devolucion", args_schema=VerificarDevolucionInput)
-def verificar_devolucion(pedido_id: str, sku: str, cliente_id: Optional[str] = None) -> str:
+def verificar_devolucion(pedido_id: str, sku: str, cliente_id: Optional[str] = None, *, runtime: ToolRuntime[TicketContext] = None) -> str:
     """Verifica si un producto de un pedido es elegible para devolución (titularidad, plazo según segmento, estado y tipo de producto)."""
+    cliente_id = ticket_customer(runtime, cliente_id)
+    if cliente_id is None:
+        return dump({"elegible": False, "motivo": "Acceso denegado: cliente fuera del contexto del ticket"})
     return dump(evaluar_devolucion(pedido_id, sku, cliente_id=cliente_id))
 
 
 @tool("crear_etiqueta_devolucion", args_schema=CrearEtiquetaInput)
-def crear_etiqueta_devolucion(pedido_id: str, sku: str, motivo: str, cliente_id: Optional[str] = None) -> str:
+def crear_etiqueta_devolucion(pedido_id: str, sku: str, motivo: str, cliente_id: Optional[str] = None, *, runtime: ToolRuntime[TicketContext] = None) -> str:
     """Genera una etiqueta de envío (RMA) para devolver un producto y la persiste en la base de datos. Solo funciona si es elegible y pertenece al cliente."""
+    cliente_id = ticket_customer(runtime, cliente_id)
+    if cliente_id is None:
+        return dump({"error": "Acceso denegado: cliente fuera del contexto del ticket"})
     ev = evaluar_devolucion(pedido_id, sku, cliente_id=cliente_id)
     if not ev["elegible"]:
         return dump({"error": "No se puede crear la etiqueta", "motivo": ev["motivo"]})
-    rma = get_repo().get_or_create_rma(pedido_id, sku, motivo)
+    rma = get_repo().get_or_create_rma(pedido_id, sku, motivo, cliente_id=cliente_id)
     return dump(rma)

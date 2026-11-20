@@ -1,5 +1,20 @@
 """Generación de contexto: información básica del ticket y del cliente desde el repositorio."""
+from dataclasses import dataclass
+
 from src.data import get_repo
+
+
+@dataclass(frozen=True)
+class TicketContext:
+    cliente_id: str
+
+    def authorized_customer(self, requested_id: str | None) -> str | None:
+        customer_id = self.cliente_id.strip().upper()
+        if not customer_id:
+            return None
+        if requested_id is not None and requested_id.strip().upper() != customer_id:
+            return None
+        return customer_id
 
 
 def generar_contexto(ticket: dict) -> str:

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from src import config
 from src.agents import active_version, build_agent
 from src.pipeline import steps
-from src.pipeline.context import generar_contexto
+from src.pipeline.context import TicketContext, generar_contexto
 from src.pipeline.orchestrator import (
     ResultadoTicket,
     SistemaMultiagente,
@@ -175,7 +175,7 @@ def evaluate_triage_version(
         ctx = generar_contexto(ticket)
         exp_r = sc["expected_routing"]
         try:
-            clasif, m = _run(agent, steps.paso_triaje(ctx), agent_name="triaje", version=version)
+            clasif, m = _run(agent, steps.paso_triaje(ctx), context=TicketContext(ticket["cliente_id"]), agent_name="triaje", version=version)
         except Exception as exc:
             print(f"ERROR ({exc})", flush=True)
             results.append(
@@ -268,7 +268,7 @@ def evaluate_qa_scenario(sc: dict[str, Any], *, version: str = "v1", llm: Any = 
         justificacion="eval_override",
     )
     borrador = BorradorRespuesta(**sc["context"]["specialist_draft_override"])
-    qa, m = _run(agent, steps.paso_qa(ctx, clasif, borrador), agent_name="qa", version=version)
+    qa, m = _run(agent, steps.paso_qa(ctx, clasif, borrador), context=TicketContext(ticket["cliente_id"]), agent_name="qa", version=version)
 
     no_tools = len(m.tool_calls) == 0
     rejected_bad_draft = qa.veredicto == "rechazado" and qa.precision <= 2 and qa.politica <= 2

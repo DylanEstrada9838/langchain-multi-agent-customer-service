@@ -14,10 +14,12 @@ class Stub:
         self.name = name
         self.calls = 0
         self.prompts: list[str] = []
+        self.customer_ids: list[str] = []
         self._tool_calls = tool_calls or []
         self._tokens = tokens
 
     def invoke(self, payload, **_k):
+        self.customer_ids.append(_k["context"].cliente_id)
         self.prompts.append(payload["messages"][0]["content"])
         idx = min(self.calls, len(self._responses) - 1)
         self.calls += 1
@@ -79,6 +81,8 @@ def test_qa_rechaza_y_especialista_corrige_en_reintento():
 
     assert sistema.devoluciones.calls == 2
     assert sistema.qa.calls == 2
+    assert sistema.triaje.customer_ids == [TICKETS[0]["cliente_id"]]
+    assert sistema.devoluciones.customer_ids == sistema.qa.customer_ids == [TICKETS[0]["cliente_id"]] * 2
     assert r.intentos_qa == 2
     assert "CORRECCIÓN REQUERIDA POR QA" in sistema.devoluciones.prompts[1]
     assert r.qa.veredicto == "aprobado"

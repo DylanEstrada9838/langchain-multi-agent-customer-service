@@ -97,9 +97,12 @@ class SupportRepository:
             rows = [r for r in rows if r.zona.lower() in (z, "global")]
         return [r.to_dict() for r in rows]
 
-    def get_or_create_rma(self, pedido_id: str, sku: str, motivo: str) -> dict[str, Any]:
+    def get_or_create_rma(self, pedido_id: str, sku: str, motivo: str, *, cliente_id: str) -> dict[str, Any]:
         pid, code = pedido_id.strip().upper(), sku.strip().upper()
         with self._session_factory() as s:
+            pedido = s.get(PedidoModel, pid)
+            if pedido is None or pedido.cliente_id != cliente_id.strip().upper():
+                return {"error": "Acceso denegado: el pedido no pertenece al cliente del ticket"}
             existing = s.scalar(
                 select(DevolucionModel).where(
                     DevolucionModel.pedido_id == pid,

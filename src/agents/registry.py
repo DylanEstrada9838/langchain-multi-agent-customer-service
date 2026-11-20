@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from src import config
 from src.llm import LLMFactory, ModelConfig
+from src.pipeline.context import TicketContext
 from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
 from src.tools import CONSULTAS_TOOLS, DEVOLUCIONES_TOOLS, QA_TOOLS, SOPORTE_TOOLS, TRIAJE_TOOLS
 
@@ -104,6 +105,7 @@ def build_agent(
         tools=spec.tools,
         system_prompt=spec.system_prompt,
         response_format=spec.response_format,
+        context_schema=TicketContext,
         name=f"{spec.name}_{spec.version}",
     )
 

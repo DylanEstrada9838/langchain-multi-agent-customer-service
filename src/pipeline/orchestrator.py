@@ -9,7 +9,7 @@ from src import config
 from src.agents import AGENT_BINDINGS, active_version, build_agent, get_active_versions
 from src.llm import calculate_cost
 from src.pipeline import steps
-from src.pipeline.context import generar_contexto
+from src.pipeline.context import TicketContext, generar_contexto
 from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
 
 RECURSION_LIMIT = 15
@@ -137,11 +137,12 @@ def _extract_telemetry(agent_name: str, version: str, out: dict[str, Any], elaps
     )
 
 
-def _run(agent, prompt: str, *, agent_name: str = "agent", version: str = "v1") -> tuple[Any, AgentStepMetrics]:
+def _run(agent, prompt: str, *, context: TicketContext, agent_name: str = "agent", version: str = "v1") -> tuple[Any, AgentStepMetrics]:
     t0 = time.time()
     out = agent.invoke(
         {"messages": [{"role": "user", "content": prompt}]},
         config={"recursion_limit": RECURSION_LIMIT},
+        context=context,
     )
     metrics = _extract_telemetry(agent_name, version, out, time.time() - t0)
     return out["structured_response"], metrics
@@ -173,6 +174,7 @@ def procesar_ticket(
     t0 = time.time()
     retries = config.MAX_QA_RETRIES if max_qa_retries is None else max_qa_retries
     ctx = generar_contexto(ticket)
+    context = TicketContext(ticket["cliente_id"])
     metricas: list[AgentStepMetrics] = []
 
     triaje_ver = sistema.versiones.get("triaje", active_version("triaje"))
@@ -182,7 +184,7 @@ def procesar_ticket(
     triaje_fallido = False
     try:
         clasif, m_triaje = _run(
-            sistema.triaje, steps.paso_triaje(ctx), agent_name="triaje", version=triaje_ver
+            sistema.triaje, steps.paso_triaje(ctx), context=context, agent_name="triaje", version=triaje_ver
         )
         metricas.append(m_triaje)
     except Exception:
@@ -202,12 +204,12 @@ def procesar_ticket(
     agente = sistema.especialista(clasif.categoria)
 
     borrador, m_esp = _run(
-        agente, steps.paso_resolucion(ctx, clasif), agent_name=nombre_esp, version=esp_ver
+        agente, steps.paso_resolucion(ctx, clasif), context=context, agent_name=nombre_esp, version=esp_ver
     )
     metricas.append(m_esp)
 
     qa, m_qa = _run(
-        sistema.qa, steps.paso_qa(ctx, clasif, borrador), agent_name="qa", version=qa_ver
+        sistema.qa, steps.paso_qa(ctx, clasif, borrador), context=context, agent_name="qa", version=qa_ver
     )
     metricas.append(m_qa)
     intentos_qa = 1
@@ -216,12 +218,12 @@ def procesar_ticket(
         borrador, m_esp_retry = _run(
             agente,
             steps.paso_correccion(ctx, clasif, borrador, qa.observaciones),
-            agent_name=nombre_esp,
+            context=context, agent_name=nombre_esp,
             version=esp_ver,
         )
         metricas.append(m_esp_retry)
         qa, m_qa_retry = _run(
-            sistema.qa, steps.paso_qa(ctx, clasif, borrador), agent_name="qa", version=qa_ver
+            sistema.qa, steps.paso_qa(ctx, clasif, borrador), context=context, agent_name="qa", version=qa_ver
         )
         metricas.append(m_qa_retry)
         intentos_qa += 1
