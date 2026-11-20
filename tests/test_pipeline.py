@@ -1,4 +1,4 @@
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 import pytest
 from pydantic import ValidationError
 
@@ -10,7 +10,7 @@ from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, Evaluaci
 
 
 class Stub:
-    def __init__(self, responses, name, tool_calls=None, tokens=(50, 20)):
+    def __init__(self, responses, name, tool_calls=None, tokens=(50, 20), tool_results=()):
         self._responses = responses if isinstance(responses, list) else [responses]
         self.name = name
         self.calls = 0
@@ -18,6 +18,7 @@ class Stub:
         self.customer_ids: list[str] = []
         self._tool_calls = tool_calls or []
         self._tokens = tokens
+        self._tool_results = tool_results
 
     def invoke(self, payload, **_k):
         self.customer_ids.append(_k["context"].cliente_id)
@@ -33,7 +34,7 @@ class Stub:
                 "total_tokens": self._tokens[0] + self._tokens[1],
             },
         )
-        return {"structured_response": self._responses[idx], "messages": [ai_msg]}
+        return {"structured_response": self._responses[idx], "messages": [ai_msg, *self._tool_results]}
 
 
 def _sistema(categoria, borradores=None, qas=None):
@@ -140,7 +141,7 @@ def test_telemetria_por_agente_y_evaluador():
     )
     borr = BorradorRespuesta(respuesta_cliente="RMA-00001 generado")
     qa = EvaluacionQA(
-        precision=5, politica=5, tono=5, completitud=5, veredicto="aprobado", respuesta_final="final", observaciones="ok"
+        precision=5, politica=5, tono=5, completitud=5, veredicto="aprobado", respuesta_final="RMA-00001 https://example.test/label.pdf", observaciones="ok"
     )
     t_stub = Stub(
         clasif, "triaje",
@@ -155,6 +156,10 @@ def test_telemetria_por_agente_y_evaluador():
             {"name": "crear_etiqueta_devolucion", "args": {"pedido_id": "P9001", "sku": "SKU-002", "motivo": "x", "cliente_id": "C900"}, "id": "tc4"},
         ],
         tokens=(200, 50),
+        tool_results=[ToolMessage(
+            name="crear_etiqueta_devolucion", tool_call_id="tc4",
+            content='{"rma_id":"RMA-00001","etiqueta_url":"https://example.test/label.pdf","pedido_id":"P9001","sku":"SKU-002"}',
+        )],
     )
     qa_stub = Stub(qa, "qa", tool_calls=[], tokens=(150, 40))
     sistema = SistemaMultiagente(t_stub, d_stub, d_stub, d_stub, qa_stub, versiones={"triaje": "v2", "devoluciones": "v1", "qa": "v1"})
@@ -297,7 +302,7 @@ def test_code_evaluators_replican_checks_locales():
     }
     assert {e(ok_run, ref)["key"]: e(ok_run, ref)["score"] for e in CODE_EVALUATORS} == {
         "categoria_match": 1, "especialista_match": 1, "escalado_match": 1,
-        "tool_trajectory_match": 1, "qa_quality_gate": 1,
+        "tool_trajectory_match": 1, "qa_quality_gate": 1, "scenario_assertions": None,
     }
 
     bad_run = {"outputs": {**ok_run["outputs"], "categoria": "consulta", "tool_calls": [], "qa": {"veredicto": "rechazado"}}}
@@ -388,3 +393,93 @@ def test_processing_failure_retains_ticket(monkeypatch, failed_stage, expected_a
     assert (result.borrador is not None) == (failed_stage == "specialist_retry")
     assert result.qa == (rejected if failed_stage == "specialist_retry" else None)
     assert qa_quality_gate({"outputs": result.model_dump()}, {})["score"] == 0
+
+
+def test_trajectory_matches_agent_arguments_order_and_multiplicity():
+    from src.pipeline.orchestrator import ToolCallTrace
+    from src.pipeline.scenario_checks import check_tools
+
+    lookup = {"agent": "triaje", "tool": "crm", "args": {"cliente_id": "C900"}}
+    verify = {"agent": "devoluciones", "tool": "eligibility", "args": {"sku": "SKU-002"}}
+    actual = [ToolCallTrace(**lookup), ToolCallTrace(**verify)]
+    assert check_tools([lookup, verify], actual, ordered=True) == (True, 1.0)
+    assert not check_tools([lookup, lookup], actual)[0]
+    assert not check_tools([verify, lookup], actual, ordered=True)[0]
+    assert not check_tools([{**lookup, "agent": "consultas"}], actual)[0]
+    assert not check_tools([{**verify, "args": {"sku": "SKU-003"}}], actual)[0]
+
+
+def test_scenario_checks_reject_inaccurate_rma_reply_and_low_qa():
+    from src.pipeline.langsmith_eval import scenario_assertions, tool_trajectory_match
+    from src.pipeline.orchestrator import ToolCallTrace
+    from src.pipeline.scenario_checks import check_scenario
+
+    scenario = load_eval_dataset(limit=1)[0]
+    calls = [ToolCallTrace(**entry) for entry in scenario["expected_tool_calls"]]
+    calls[-1].result = {
+        "pedido_id": "P9001", "sku": "SKU-002", "rma_id": "RMA-00001",
+        "etiqueta_url": "https://example.test/the-label.pdf",
+    }
+    ref = {"outputs": scenario}
+    outputs = {
+        "clasificacion": {"segmento_cliente": "VIP"},
+        "qa": {"veredicto": "aprobado", "precision": 3, "politica": 5, "tono": 5, "completitud": 5},
+        "respuesta_final": "RMA-00002 https://example.test/another-label.pdf",
+        "tool_calls": [call.model_dump() for call in calls],
+    }
+
+    checks = check_scenario(
+        scenario["assertions"], classification=outputs["clasificacion"], qa=outputs["qa"],
+        reply=outputs["respuesta_final"], calls=calls,
+    )
+    assert not checks["qa_min.precision"]
+    assert not checks["tool_result.crear_etiqueta_devolucion.1"]
+    assert scenario_assertions({"outputs": outputs}, ref)["score"] == 0
+    outputs["qa"]["precision"] = 4
+    outputs["respuesta_final"] = "RMA-00001 https://example.test/the-label.pdf"
+    assert scenario_assertions({"outputs": outputs}, ref)["score"] == 1
+    outputs["tool_calls"].reverse()
+    assert tool_trajectory_match({"outputs": outputs}, ref)["score"] == 0
+
+
+def test_pre_shipment_scenario_fails_if_rma_tool_is_invoked():
+    from src.pipeline.orchestrator import ToolCallTrace
+    from src.pipeline.scenario_checks import check_scenario
+
+    scenario = next(row for row in load_eval_dataset() if row["id"] == "EVAL-021")
+    calls = [ToolCallTrace(agent="devoluciones", tool="crear_etiqueta_devolucion")]
+    assert not check_scenario(scenario["assertions"], calls=calls)["forbidden_tools"]
+
+
+def test_qa_only_scenario_has_same_checks_locally_and_in_langsmith():
+    from src.pipeline.evaluator import evaluate_qa_scenario
+    from src.pipeline.langsmith_eval import make_pipeline_target, qa_quality_gate, scenario_assertions
+
+    scenario = next(row for row in load_eval_dataset() if row["id"] == "EVAL-020")
+    bad_rejection = EvaluacionQA(
+        precision=3, politica=2, tono=4, completitud=3,
+        veredicto="rechazado", respuesta_final="Needs review",
+    )
+    sistema = _sistema("consulta", qas=bad_rejection)
+    local = evaluate_qa_scenario(scenario, agent=sistema.qa)
+    example = scenario_to_langsmith_example(scenario, "test-dataset")
+    run = {"outputs": make_pipeline_target(sistema)(example["inputs"])}
+    assert not local.passed
+    assert run["outputs"]["stage_checks"] == local.checks
+    assert qa_quality_gate(run, example)["score"] == 0
+    assert scenario_assertions(run, example)["score"] == 0
+
+
+def test_golden_scenarios_have_valid_assertion_definitions():
+    import re
+
+    from src.pipeline.scenario_checks import ScenarioChecks
+
+    for row in load_eval_dataset():
+        rules = ScenarioChecks.model_validate(row["assertions"])
+        assert all(1 <= index <= len(row["pass_fail_criteria"]) for index in rules.manual_criteria)
+        for pattern in [*rules.reply_requires, *rules.reply_forbids]:
+            re.compile(pattern)
+        for result in rules.tool_results:
+            for pattern in result.contains.values():
+                re.compile(pattern)

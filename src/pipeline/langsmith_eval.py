@@ -12,11 +12,11 @@ from src.agents import active_version, get_active_versions
 from src.llm import calculate_cost
 from src.pipeline.evaluator import (
     DEFAULT_DATASET_PATH,
-    _check_tools_match,
     _scenario_to_ticket,
     evaluate_qa_scenario,
     load_eval_dataset,
 )
+from src.pipeline.scenario_checks import ScenarioChecks, check_scenario, check_tools
 from src.pipeline.quality_gate import compute_pipeline_metrics
 from src.pipeline.orchestrator import (
     SistemaMultiagente,
@@ -38,12 +38,17 @@ class DatasetSyncResult(BaseModel):
 def scenario_to_langsmith_example(sc: dict[str, Any], dataset_name: str) -> dict[str, Any]:
     """Convierte una fila de `eval_dataset.jsonl` al formato `(id, inputs, outputs, metadata)` de LangSmith."""
     example_id = str(uuid.uuid5(_NAMESPACE, f"{dataset_name}:{sc['id']}"))
+    context = sc.get("context") or {}
+    qa_inputs = {}
+    if context.get("stage_under_test") == "qa":
+        qa_inputs = {"expected_routing": sc["expected_routing"], "assertions": sc["assertions"]}
     return {
         "id": example_id,
         "inputs": {
             "id": sc["id"],
             "category": sc["category"],
-            "context": sc.get("context") or {},
+            "context": context,
+            **qa_inputs,
             "user_input": sc["user_input"],
         },
         "outputs": {
@@ -51,6 +56,7 @@ def scenario_to_langsmith_example(sc: dict[str, Any], dataset_name: str) -> dict
             "expected_tool_calls": sc["expected_tool_calls"],
             "expected_behavior": sc.get("expected_behavior", ""),
             "pass_fail_criteria": sc.get("pass_fail_criteria") or [],
+            "assertions": sc.get("assertions") or {},
         },
         "metadata": {
             "scenario_id": sc["id"],
@@ -137,10 +143,10 @@ def make_pipeline_target(
         }
 
         if sc["context"].get("stage_under_test") == "qa":
-            # evaluate_qa_scenario necesita expected_routing para construir la clasificación de entrada
-            full = next(s for s in load_eval_dataset() if s["id"] == sc["id"])
+            sc["expected_routing"] = inputs["expected_routing"]
+            sc["assertions"] = inputs["assertions"]
             qa_ver = sys_instance.versiones.get("qa", active_version("qa"))
-            res_qa = evaluate_qa_scenario(full, version=qa_ver, llm=llm)
+            res_qa = evaluate_qa_scenario(sc, version=qa_ver, agent=sys_instance.qa)
             cost_qa = calculate_cost(config.DEFAULT_LLM_MODEL, int(res_qa.total_tokens * 0.7), int(res_qa.total_tokens * 0.3))
             return {
                 "stage": "qa",
@@ -158,6 +164,8 @@ def make_pipeline_target(
             "stage": "pipeline",
             "categoria": res.clasificacion.categoria if res.clasificacion else None,
             "prioridad": res.clasificacion.prioridad if res.clasificacion else None,
+            "clasificacion": res.clasificacion.model_dump() if res.clasificacion else None,
+            "borrador": {"requiere_escalado": res.borrador.requiere_escalado} if res.borrador else None,
             "failed_stage": res.failed_stage,
             "especialista": res.especialista,
             "escalado_humano": res.escalado_humano,
@@ -224,14 +232,16 @@ def tool_trajectory_match(run: Any, example: Any) -> dict[str, Any]:
         ok = bool((out.get("stage_checks") or {}).get("no_tools_called", False))
         return _result("tool_trajectory_match", ok, "QA no debe llamar herramientas")
     actual = [ToolCallTrace(**tc) for tc in out.get("tool_calls", [])]
-    ok, recall = _check_tools_match(ref.get("expected_tool_calls", []), actual)
+    rules = ScenarioChecks.model_validate(ref.get("assertions") or {})
+    ok, recall = check_tools(ref.get("expected_tool_calls", []), actual, ordered=rules.ordered_tools)
     return _result("tool_trajectory_match", ok, f"recall={recall}")
 
 
 def qa_quality_gate(run: Any, example: Any) -> dict[str, Any]:
     out = _outputs_of(run)
     if out.get("stage") == "qa":
-        ok = all((out.get("stage_checks") or {}).values())
+        checks = out.get("stage_checks") or {}
+        ok = bool(checks) and all(checks.values())
         return _result("qa_quality_gate", ok, "QA rechaza borrador contradictorio")
     if out.get("failed_stage"):
         return _result("qa_quality_gate", False, f"Fallo de ejecucion: {out['failed_stage']}")
@@ -240,12 +250,32 @@ def qa_quality_gate(run: Any, example: Any) -> dict[str, Any]:
     return _result("qa_quality_gate", ok, f"veredicto={veredicto}")
 
 
+def scenario_assertions(run: Any, example: Any) -> dict[str, Any]:
+    out, ref = _outputs_of(run), _ref_of(example)
+    assertions = ref.get("assertions")
+    if assertions is None:
+        return _result("scenario_assertions", None, "No scenario assertions")
+    rules = ScenarioChecks.model_validate(assertions)
+    checks = check_scenario(
+        assertions,
+        classification=out.get("clasificacion"),
+        draft=out.get("borrador"),
+        qa=out.get("qa"),
+        reply=out.get("respuesta_final") or "",
+        calls=[ToolCallTrace(**call) for call in out.get("tool_calls", [])],
+    )
+    failed = ", ".join(key for key, ok in checks.items() if not ok) or "none"
+    manual = ", ".join(str(index) for index in rules.manual_criteria) or "none"
+    return _result("scenario_assertions", all(checks.values()), f"Failed: {failed}. Manual criteria: {manual}.")
+
+
 CODE_EVALUATORS = [
     categoria_match,
     especialista_match,
     escalado_match,
     tool_trajectory_match,
     qa_quality_gate,
+    scenario_assertions,
 ]
 
 
@@ -357,6 +387,8 @@ def run_langsmith_experiment(
     if not examples:
         raise ValueError(f"El dataset '{name}' no tiene ejemplos (¿ejecutaste --sync-dataset?).")
 
+    if any("assertions" not in (example.outputs or {}) for example in examples):
+        raise ValueError("El dataset no contiene las nuevas aserciones. Ejecuta --sync-dataset.")
     used_versions = {**get_active_versions(), **(versions or {})}
     ver_tag = "-".join(sorted(set(used_versions.values()))) if len(set(used_versions.values())) == 1 else "mixed"
     prefix = experiment_prefix or f"pipeline-{ver_tag}"

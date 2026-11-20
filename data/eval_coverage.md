@@ -38,3 +38,48 @@ This document maps every requirement, agent capability, tool contract, and guard
 | **Boundary: Pre-Delivery Cancellation (`procesando`) vs. In-Transit Return (`enviado`/`retrasado`)** | Policy & Escalation | `EVAL-011` (`P9004` in `retrasado` $\rightarrow$ wait for delivery or refuse package), `EVAL-021` (`P9008` in `procesando` $\rightarrow$ `escalado_humano=True` to stop warehouse shipment) |
 | **Boundary: Out-of-scope & adversarial prompt injection** | Boundary Testing | `EVAL-014` (admin override / 500 EUR coupon & VIP spoofing), `EVAL-015` (Python scraping & weather) |
 | **Escalation (`escalado_humano=True`)**: Hardware/physical damage, missing KB article, pre-shipment cancellation (`procesando`), or persistent QA rejection | Escalation | `EVAL-008` (water/burning damage), `EVAL-018` (unlisted product/error `E-404`), `EVAL-020` (QA rejection), `EVAL-021` (pre-shipment order cancellation) |
+
+
+## Executable assertions and manual review
+
+Local and LangSmith runs apply the same deterministic scenario assertions. A passing
+automated check establishes the fields and reply patterns listed below. Review the
+numbered criteria still marked as manual when certifying a scenario. The numbers refer
+to the original 1-based order of `pass_fail_criteria` in the scenario.
+
+| Scenario | Additional automated coverage | Criteria requiring full or partial manual review |
+|---|---|---|
+| EVAL-001 | VIP tier, ordered return workflow, RMA ID and URL from tool result, score floors and verdict | 4 (formal tone) |
+| EVAL-002 | KB article, troubleshooting text markers, specialist escalation flag | 3 |
+| EVAL-003 | KB and incident IDs, ETA and troubleshooting text markers | 2, 3, 4 |
+| EVAL-004 | Verified order status, exact carrier and tracking, incident ID, ETA and amount markers | 3, 4 |
+| EVAL-005 | No order ID or order lookup, policy text markers | 3, 4 |
+| EVAL-006 | Urgency, incident ID, ETA and compensation markers | 3, 4 |
+| EVAL-007 | Extracted order and SKU, ordered return workflow, exact RMA ID and URL | 3 (formal tone) |
+| EVAL-008 | Specialist escalation flag | 3, 4 |
+| EVAL-009 | Delayed order result, return-window markers, no RMA call, completeness score | 2 |
+| EVAL-010 | Denial in order tool result | 3 |
+| EVAL-011 | Ineligible and in transit, no RMA call | 2, 3 |
+| EVAL-012 | Ineligible and elapsed days versus policy window, no RMA call or RMA ID/URL in reply | 1, 4 |
+| EVAL-013 | Ineligible due to customization, no RMA call, customization marker | 1, 2 |
+| EVAL-014 | Standard tier, denied as out of window, no RMA call, forbidden coupon and RMA text | 3 (reply wording) |
+| EVAL-015 | No order or returns calls | 1, 2 |
+| EVAL-016 | Denial in order tool result | 2, 3 |
+| EVAL-017 | Missing order result, order ID in reply, forbidden tracking pattern | 2, 3 |
+| EVAL-018 | Empty KB result and specialist escalation flag | 2 |
+| EVAL-019 | SKU mismatch in eligibility result, no RMA call, expected product and SKU in reply | 3 |
+| EVAL-020 | QA-only rejection, maximum precision and policy scores of 2, no tool calls | None |
+| EVAL-021 | Ineligible before dispatch, cancellation guidance in tool result, no RMA call, specialist escalation flag | 4 |
+| EVAL-022 | Ordered return workflow, exact RMA ID and URL, refund timeframe marker | 3 (business-day wording) |
+| EVAL-023 | Null order ID and SKU, no order or returns calls | 2, 3 |
+
+The matcher consumes each expected call once and checks its agent, tool, and declared
+arguments. Free-form search queries and return reasons allow agent-generated wording.
+Ordering is enabled for scenarios with an explicitly sequenced return workflow.
+The no-RMA assertion checks that the RMA creation tool was never invoked. That tool
+is the pipeline's RMA write path. Successful RMA assertions use the persisted ID and
+URL returned by that tool.
+
+Retry and final rejection handling for QA are covered by the pipeline unit tests.
+Sync the dataset with `--sync-dataset` before running the updated LangSmith evaluation.
+Historical reports remain tied to the checks that generated them.

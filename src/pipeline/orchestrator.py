@@ -1,8 +1,10 @@
 """Orquestación: Triaje -> Especialista (con bucle de reintento ante rechazo de QA) -> QA / Escalado a humano."""
+import json
 import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from langchain_core.messages import ToolMessage
 from pydantic import BaseModel, Field
 
 from src import config
@@ -26,6 +28,7 @@ class ToolCallTrace(BaseModel):
     agent: str
     tool: str
     args: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] | None = None
 
 
 class AgentStepMetrics(BaseModel):
@@ -102,6 +105,30 @@ def construir_sistema(
     )
 
 
+def _tool_evidence(message: ToolMessage) -> dict[str, Any] | None:
+    fields = {
+        "consultar_pedido": ("estado_envio", "transportista", "tracking", "error"),
+        "verificar_devolucion": ("elegible", "motivo", "estado_envio", "dias_desde_entrega", "plazo_dias"),
+        "crear_etiqueta_devolucion": ("rma_id", "etiqueta_url", "pedido_id", "sku"),
+        "buscar_knowledge_base": ("resultados",),
+        "verificar_incidencias": ("incidencias_activas",),
+        "consultar_cliente": ("segmento",),
+    }.get(message.name)
+    if not fields or message.status == "error" or not isinstance(message.content, str):
+        return None
+    try:
+        payload = json.loads(message.content)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    evidence = {key: payload[key] for key in fields if key in payload}
+    for key in ("resultados", "incidencias_activas"):
+        if isinstance(evidence.get(key), list):
+            evidence[key] = [item["id"] for item in evidence[key] if isinstance(item, dict) and "id" in item]
+    return evidence
+
+
 def _extract_telemetry(agent_name: str, version: str, out: dict[str, Any], elapsed: float) -> AgentStepMetrics:
     """Extrae tool_calls reales y tokens consumidos del historial de mensajes de LangChain."""
     tool_calls: list[ToolCallTrace] = []
@@ -110,7 +137,9 @@ def _extract_telemetry(agent_name: str, version: str, out: dict[str, Any], elaps
     if "structured_response" in out and out["structured_response"] is not None:
         response_format_name = type(out["structured_response"]).__name__
 
-    for msg in out.get("messages") or []:
+    messages = out.get("messages") or []
+    results = {msg.tool_call_id: _tool_evidence(msg) for msg in messages if isinstance(msg, ToolMessage)}
+    for msg in messages:
         usage = getattr(msg, "usage_metadata", None) or (msg.get("usage_metadata") if isinstance(msg, dict) else None)
         if isinstance(usage, dict):
             in_tok += int(usage.get("input_tokens", 0) or 0)
@@ -124,9 +153,12 @@ def _extract_telemetry(agent_name: str, version: str, out: dict[str, Any], elaps
             if not t_name or t_name == response_format_name:
                 continue
             t_args = tc.get("args") if isinstance(tc, dict) else getattr(tc, "args", {})
-            tool_calls.append(
-                ToolCallTrace(agent=agent_name, tool=t_name, args=t_args if isinstance(t_args, dict) else {})
-            )
+            call_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+            tool_calls.append(ToolCallTrace(
+                agent=agent_name, tool=t_name,
+                args=t_args if isinstance(t_args, dict) else {},
+                result=results.get(call_id),
+            ))
 
     cost = calculate_cost(config.DEFAULT_LLM_MODEL, in_tok, out_tok)
     return AgentStepMetrics(

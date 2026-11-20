@@ -17,6 +17,7 @@ from src.pipeline.orchestrator import (
     construir_sistema,
     procesar_ticket,
 )
+from src.pipeline.scenario_checks import ScenarioChecks, check_scenario, check_tools as _check_tools_match
 from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket
 
 DEFAULT_DATASET_PATH = config.ROOT / "data" / "eval_dataset.jsonl"
@@ -117,45 +118,6 @@ def _scenario_to_ticket(sc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _check_tools_match(
-    expected: list[dict[str, Any]] | str,
-    actual: list[ToolCallTrace],
-    *,
-    agent_filter: str | None = None,
-) -> tuple[bool, float]:
-    """Compara las llamadas a herramientas esperadas frente a las ejecutadas realmente."""
-    filtered_actual = [tc for tc in actual if not agent_filter or tc.agent == agent_filter]
-    if expected == "none":
-        ok = len(filtered_actual) == 0
-        return ok, (1.0 if ok else 0.0)
-
-    exp_list = [
-        e for e in (expected if isinstance(expected, list) else [])
-        if not agent_filter or e.get("agent") == agent_filter
-    ]
-    if not exp_list:
-        return True, 1.0
-
-    matched = 0
-    for exp in exp_list:
-        exp_tool = exp.get("tool")
-        exp_args = exp.get("args") or {}
-        for act in filtered_actual:
-            if act.tool != exp_tool:
-                continue
-            key_ok = all(
-                str(act.args.get(k, "")).upper() == str(v).upper()
-                for k, v in exp_args.items()
-                if k in ("cliente_id", "pedido_id", "sku", "tipo", "zona") and v is not None
-            )
-            if key_ok:
-                matched += 1
-                break
-
-    recall = matched / len(exp_list)
-    return matched == len(exp_list), round(recall, 4)
-
-
 def evaluate_triage_version(
     scenarios: list[dict[str, Any]],
     *,
@@ -253,9 +215,12 @@ def evaluate_triage_version(
     )
 
 
-def evaluate_qa_scenario(sc: dict[str, Any], *, version: str = "v1", llm: Any = None) -> ScenarioEvalResult:
+def evaluate_qa_scenario(
+    sc: dict[str, Any], *, version: str = "v1", llm: Any = None, agent: Any = None,
+) -> ScenarioEvalResult:
     """Evalúa un escenario específico de QA con `specialist_draft_override` (como EVAL-020)."""
-    agent = build_agent("qa", version=version, llm=llm)
+    if agent is None:
+        agent = build_agent("qa", version=version, llm=llm)
     ticket = _scenario_to_ticket(sc)
     ctx = generar_contexto(ticket)
     exp_r = sc["expected_routing"]
@@ -271,8 +236,8 @@ def evaluate_qa_scenario(sc: dict[str, Any], *, version: str = "v1", llm: Any = 
     qa, m = _run(agent, steps.paso_qa(ctx, clasif, borrador), context=TicketContext(ticket["cliente_id"]), agent_name="qa", version=version)
 
     no_tools = len(m.tool_calls) == 0
-    rejected_bad_draft = qa.veredicto == "rechazado" and qa.precision <= 2 and qa.politica <= 2
-    checks = {"no_tools_called": no_tools, "rejected_contradictory_draft": rejected_bad_draft}
+    assertions = sc["assertions"]
+    checks = {"no_tools_called": no_tools, **check_scenario(assertions, qa=qa.model_dump(), calls=m.tool_calls)}
     return ScenarioEvalResult(
         scenario_id=sc["id"],
         category=sc["category"],
@@ -308,7 +273,7 @@ def evaluate_pipeline(
         if (sc.get("context") or {}).get("stage_under_test") == "qa":
             qa_ver = sys_instance.versiones.get("qa", active_version("qa"))
             try:
-                res_qa = evaluate_qa_scenario(sc, version=qa_ver, llm=llm)
+                res_qa = evaluate_qa_scenario(sc, version=qa_ver, agent=sys_instance.qa)
                 print(
                     f"{'PASS' if res_qa.passed else 'FAIL'} (stage=qa, {res_qa.segundos}s, {res_qa.total_tokens} tok)",
                     flush=True,
@@ -349,7 +314,17 @@ def evaluate_pipeline(
         cat_ok = categoria == exp_r["categoria"]
         esp_ok = res.especialista == exp_r["especialista"]
         esc_ok = res.escalado_humano == exp_r["escalado_humano"]
-        tools_ok, recall = _check_tools_match(sc["expected_tool_calls"], res.tool_calls)
+        assertions = sc["assertions"]
+        rules = ScenarioChecks.model_validate(assertions)
+        tools_ok, recall = _check_tools_match(sc["expected_tool_calls"], res.tool_calls, ordered=rules.ordered_tools)
+        assertion_checks = check_scenario(
+            assertions,
+            classification=res.clasificacion.model_dump() if res.clasificacion else None,
+            draft=res.borrador.model_dump() if res.borrador else None,
+            qa=res.qa.model_dump() if res.qa else None,
+            reply=res.respuesta_final,
+            calls=res.tool_calls,
+        )
         veredicto = res.qa.veredicto if res.qa else None
         qa_ok = res.failed_stage is None and res.qa is not None and (veredicto in ("aprobado", "reescrito") or res.escalado_humano)
 
@@ -371,6 +346,7 @@ def evaluate_pipeline(
             "escalado_match": esc_ok,
             "tool_trajectory_match": tools_ok,
             "qa_quality_gate": qa_ok,
+            **assertion_checks,
         }
         passed_sc = all(checks.values())
         failed_keys = [k for k, v in checks.items() if not v]
@@ -393,6 +369,7 @@ def evaluate_pipeline(
                 detalles={
                     "clasificacion": res.clasificacion.model_dump() if res.clasificacion else None,
                     "failed_stage": res.failed_stage,
+                    "manual_review": [sc["pass_fail_criteria"][i - 1] for i in rules.manual_criteria],
                     "especialista": res.especialista,
                     "qa": res.qa.model_dump() if res.qa is not None else None,
                     "intentos_qa": res.intentos_qa,
