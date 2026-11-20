@@ -222,10 +222,11 @@ def main():
         resultados.append(r)
         esc_tag = f" | [bold red]ESCALADO ({r.motivo_escalado})[/]" if r.escalado_humano else ""
         tools_used = ", ".join(f"{tc.tool}" for tc in r.tool_calls) or "none"
+        qa_status = r.qa.veredicto if r.qa is not None else "error"
         console.print(
             f"[cyan]{r.clasificacion.categoria}[/] | prioridad {r.clasificacion.prioridad} | "
             f"{r.clasificacion.segmento_cliente} -> {r.especialista} | "
-            f"Tools: [{tools_used}] | QA: {r.qa.veredicto} (intentos: {r.intentos_qa}) | "
+            f"Tools: [{tools_used}] | QA: {qa_status} (intentos: {r.intentos_qa}) | "
             f"Tokens: {r.total_tokens}{esc_tag}"
         )
         console.print(r.respuesta_final)
@@ -242,8 +243,8 @@ def main():
             r.clasificacion.segmento_cliente,
             r.especialista,
             str(len(r.tool_calls)),
-            f"{q.precision}/{q.politica}/{q.tono}/{q.completitud}",
-            f"{q.veredicto} ({r.intentos_qa})",
+            f"{q.precision}/{q.politica}/{q.tono}/{q.completitud}" if q else "-",
+            f"{q.veredicto if q else 'error'} ({r.intentos_qa})",
             "SÍ" if r.escalado_humano else "NO",
             str(r.total_tokens),
             str(r.segundos),

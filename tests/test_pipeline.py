@@ -1,5 +1,6 @@
 from langchain_core.messages import AIMessage
 import pytest
+from pydantic import ValidationError
 
 from src.data.sample_tickets import TICKETS
 from src.pipeline.evaluator import evaluate_pipeline, load_eval_dataset
@@ -105,6 +106,7 @@ def test_qa_rechaza_tras_reintentos_escala_a_humano():
     assert r.escalado_humano is True
     assert "QA rechazó la respuesta tras 2 intento(s)" in r.motivo_escalado
     assert "especialista humano" in r.respuesta_final
+    assert qa_rechazo.respuesta_final not in r.respuesta_final
 
 
 def test_especialista_solicita_escalado_a_humano():
@@ -250,7 +252,7 @@ def test_make_pipeline_target_envuelve_procesar_ticket(monkeypatch):
             clasificacion=ClasificacionTicket(categoria="consulta"),
             especialista="consultas",
             borrador=BorradorRespuesta(respuesta_cliente="hola"),
-            qa=EvaluacionQA(respuesta_final="hola"),
+            qa=EvaluacionQA(precision=5, politica=5, tono=5, completitud=5, veredicto="aprobado", respuesta_final="hola"),
             respuesta_final="hola",
             tool_calls=[ToolCallTrace(agent="triaje", tool="buscar_cliente", args={"cliente_id": "C001"})],
             total_tokens=10,
@@ -321,3 +323,19 @@ def test_summarize_experiment_rows():
     assert (total, passed) == (3, 2)
     assert means == {"a": 0.5, "b": 1.0}
     assert failed == {"EVAL-002": ["a"]}
+
+
+def test_incomplete_qa_escalates_without_releasing_text():
+    incomplete = {"respuesta_final": "Mensaje sin una evaluación válida"}
+    with pytest.raises(ValidationError):
+        EvaluacionQA.model_validate(incomplete)
+
+    sistema = _sistema("consulta", qas=incomplete)
+    result = procesar_ticket(TICKETS[0], sistema, max_qa_retries=1)
+
+    assert result.qa is None
+    assert result.escalado_humano
+    assert "QA no pudo completar" in result.motivo_escalado
+    assert result.intentos_qa == sistema.consultas.calls == 1
+    assert "especialista humano" in result.respuesta_final
+    assert incomplete["respuesta_final"] not in result.respuesta_final

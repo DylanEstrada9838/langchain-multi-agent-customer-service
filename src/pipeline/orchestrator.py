@@ -62,7 +62,7 @@ class ResultadoTicket(BaseModel):
     clasificacion: ClasificacionTicket
     especialista: str
     borrador: BorradorRespuesta
-    qa: EvaluacionQA
+    qa: EvaluacionQA | None
     respuesta_final: str
     intentos_qa: int = 1
     escalado_humano: bool = False
@@ -151,7 +151,7 @@ def _run(agent, prompt: str, *, context: TicketContext, agent_name: str = "agent
 def _evaluar_escalado(
     triaje_fallido: bool,
     borrador: BorradorRespuesta,
-    qa: EvaluacionQA,
+    qa: EvaluacionQA | None,
     intentos_qa: int,
 ) -> tuple[bool, str | None]:
     """Determina si el ticket debe escalarse a un agente humano y por qué motivo."""
@@ -160,7 +160,9 @@ def _evaluar_escalado(
         motivos.append("Fallo en agente de triaje")
     if borrador.requiere_escalado:
         motivos.append("Especialista solicitó escalado a humano")
-    if qa.veredicto == "rechazado":
+    if qa is None:
+        motivos.append("QA no pudo completar una evaluación válida")
+    elif qa.veredicto == "rechazado":
         motivos.append(f"QA rechazó la respuesta tras {intentos_qa} intento(s): {qa.observaciones}")
     return (bool(motivos), "; ".join(motivos) if motivos else None)
 
@@ -208,34 +210,35 @@ def procesar_ticket(
     )
     metricas.append(m_esp)
 
-    qa, m_qa = _run(
-        sistema.qa, steps.paso_qa(ctx, clasif, borrador), context=context, agent_name="qa", version=qa_ver
-    )
-    metricas.append(m_qa)
-    intentos_qa = 1
+    intentos_qa = 0
+    while True:
+        intentos_qa += 1
+        try:
+            assessment, m_qa = _run(
+                sistema.qa, steps.paso_qa(ctx, clasif, borrador),
+                context=context, agent_name="qa", version=qa_ver,
+            )
+            metricas.append(m_qa)
+            qa = EvaluacionQA.model_validate(assessment)
+        except Exception:
+            qa = None
+            break
 
-    while qa.veredicto == "rechazado" and intentos_qa <= retries and not borrador.requiere_escalado:
+        if qa.veredicto != "rechazado" or intentos_qa > retries or borrador.requiere_escalado:
+            break
+
         borrador, m_esp_retry = _run(
             agente,
             steps.paso_correccion(ctx, clasif, borrador, qa.observaciones),
-            context=context, agent_name=nombre_esp,
-            version=esp_ver,
+            context=context, agent_name=nombre_esp, version=esp_ver,
         )
         metricas.append(m_esp_retry)
-        qa, m_qa_retry = _run(
-            sistema.qa, steps.paso_qa(ctx, clasif, borrador), context=context, agent_name="qa", version=qa_ver
-        )
-        metricas.append(m_qa_retry)
-        intentos_qa += 1
 
-    # Evaluación de escalado a humano
     escalado, motivo_escalado = _evaluar_escalado(triaje_fallido, borrador, qa, intentos_qa)
-    respuesta_final = qa.respuesta_final
-    if qa.veredicto == "rechazado":
-        respuesta_final = (
-            f"{qa.respuesta_final}\n\n[Aviso: Tu caso ha sido derivado a un especialista humano "
-            f"de {config.EMPRESA_NOMBRE} para revisión prioritaria.]"
-        )
+    if qa is None or qa.veredicto == "rechazado":
+        respuesta_final = "Tu caso requiere la revisión de un especialista humano de " + config.EMPRESA_NOMBRE + "."
+    else:
+        respuesta_final = qa.respuesta_final
 
     usados = {"triaje": triaje_ver, nombre_esp: esp_ver, "qa": qa_ver}
     all_tools = [tc for m in metricas for tc in m.tool_calls]

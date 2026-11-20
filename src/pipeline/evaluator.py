@@ -349,18 +349,20 @@ def evaluate_pipeline(
         esp_ok = res.especialista == exp_r["especialista"]
         esc_ok = res.escalado_humano == exp_r["escalado_humano"]
         tools_ok, recall = _check_tools_match(sc["expected_tool_calls"], res.tool_calls)
-        qa_ok = res.qa.veredicto in ("aprobado", "reescrito") or res.escalado_humano
+        veredicto = res.qa.veredicto if res.qa else None
+        qa_ok = res.qa is not None and (veredicto in ("aprobado", "reescrito") or res.escalado_humano)
 
         cat_hits += int(cat_ok)
         esp_hits += int(esp_ok)
         esc_hits += int(esc_ok)
-        first_pass_qa += int(res.intentos_qa == 1 and res.qa.veredicto in ("aprobado", "reescrito"))
+        first_pass_qa += int(res.intentos_qa == 1 and veredicto in ("aprobado", "reescrito"))
         tool_recalls.append(recall)
 
-        qa_prec.append(res.qa.precision)
-        qa_pol.append(res.qa.politica)
-        qa_tono.append(res.qa.tono)
-        qa_comp.append(res.qa.completitud)
+        if res.qa is not None:
+            qa_prec.append(res.qa.precision)
+            qa_pol.append(res.qa.politica)
+            qa_tono.append(res.qa.tono)
+            qa_comp.append(res.qa.completitud)
 
         checks = {
             "categoria_match": cat_ok,
@@ -373,7 +375,7 @@ def evaluate_pipeline(
         failed_keys = [k for k, v in checks.items() if not v]
         status_str = "PASS" if passed_sc else f"FAIL ({', '.join(failed_keys)})"
         print(
-            f"{status_str} [{res.clasificacion.categoria}->{res.especialista}, QA={res.qa.veredicto}({res.intentos_qa}), "
+            f"{status_str} [{res.clasificacion.categoria}->{res.especialista}, QA={veredicto or 'error'}({res.intentos_qa}), "
             f"esc={res.escalado_humano}, {res.segundos}s]",
             flush=True,
         )
@@ -390,7 +392,7 @@ def evaluate_pipeline(
                 detalles={
                     "clasificacion": res.clasificacion.model_dump(),
                     "especialista": res.especialista,
-                    "qa": res.qa.model_dump(),
+                    "qa": res.qa.model_dump() if res.qa is not None else None,
                     "intentos_qa": res.intentos_qa,
                     "escalado_humano": res.escalado_humano,
                     "motivo_escalado": res.motivo_escalado,

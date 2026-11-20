@@ -24,11 +24,11 @@ class BorradorRespuesta(BaseModel):
 
 
 class EvaluacionQA(BaseModel):
-    precision: int = Field(default=5, ge=1, le=5)
-    politica: int = Field(default=5, ge=1, le=5)
-    tono: int = Field(default=5, ge=1, le=5)
-    completitud: int = Field(default=5, ge=1, le=5)
-    veredicto: Literal["aprobado", "reescrito", "rechazado"] = Field(default="aprobado")
+    precision: int = Field(ge=1, le=5)
+    politica: int = Field(ge=1, le=5)
+    tono: int = Field(ge=1, le=5)
+    completitud: int = Field(ge=1, le=5)
+    veredicto: Literal["aprobado", "reescrito", "rechazado"]
     respuesta_final: str = Field(description="Respuesta final que verá el cliente")
     observaciones: str = Field(
         default="Sin observaciones adicionales.",

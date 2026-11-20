@@ -162,7 +162,7 @@ def make_pipeline_target(
             "escalado_humano": res.escalado_humano,
             "motivo_escalado": res.motivo_escalado,
             "intentos_qa": res.intentos_qa,
-            "qa": res.qa.model_dump(),
+            "qa": res.qa.model_dump() if res.qa is not None else None,
             "respuesta_final": res.respuesta_final,
             "tool_calls": [tc.model_dump() for tc in res.tool_calls],
             "versiones_agentes": res.versiones_agentes,
@@ -233,7 +233,7 @@ def qa_quality_gate(run: Any, example: Any) -> dict[str, Any]:
         ok = all((out.get("stage_checks") or {}).values())
         return _result("qa_quality_gate", ok, "QA rechaza borrador contradictorio")
     veredicto = (out.get("qa") or {}).get("veredicto")
-    ok = veredicto in ("aprobado", "reescrito") or bool(out.get("escalado_humano"))
+    ok = veredicto is not None and (veredicto in ("aprobado", "reescrito") or bool(out.get("escalado_humano")))
     return _result("qa_quality_gate", ok, f"veredicto={veredicto}")
 
 
