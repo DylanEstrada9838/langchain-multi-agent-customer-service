@@ -163,12 +163,12 @@ _INCIDENCIAS_SEED = [
 ]
 
 
-def seed_database(session: Session) -> None:
+def seed_database(session: Session, *, as_of: date | None = None) -> None:
     """Puebla la base de datos si está vacía y garantiza que los escenarios fijos existan siempre."""
     existing = session.scalar(select(func.count()).select_from(ClienteModel))
     has_random_data = bool(existing and existing > 0)
 
-    hoy = date.today()
+    hoy = as_of or date.today()
     Faker.seed(config.FAKER_SEED)
     fake = Faker(config.FAKER_LOCALE)
     rnd = random.Random(config.FAKER_SEED)

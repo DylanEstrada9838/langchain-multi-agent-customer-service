@@ -12,6 +12,7 @@ from rich.table import Table
 from src import config
 from src.agents import active_version
 from src.data import init_db
+from src.data.repositories import evaluation_repository
 from src.data.sample_tickets import TICKETS
 from src.pipeline.evaluator import evaluate_pipeline, evaluate_triage_version, load_eval_dataset
 from src.pipeline.langsmith_eval import run_langsmith_experiment, sync_dataset_to_langsmith
@@ -178,8 +179,6 @@ def main():
     args = ap.parse_args()
 
     console = Console()
-    init_db()
-
     if args.sync_dataset:
         res = sync_dataset_to_langsmith(dataset_name=args.dataset_name)
         action_str = "Creado" if res.created else "Actualizado"
@@ -193,16 +192,19 @@ def main():
         if (args.fail_on_gate or args.update_baseline) and (args.category or args.limit):
             ap.error("--fail-on-gate / --update-baseline requieren el dataset completo (sin --category ni --limit).")
         try:
-            code = _run_langsmith_cli(args, console)
+            with evaluation_repository():
+                code = _run_langsmith_cli(args, console)
         except Exception as exc:  # error de infraestructura (credenciales, red, dataset vacío...)
             console.print(f"[bold red]Error de infraestructura:[/] {exc}")
             sys.exit(2)
         sys.exit(code)
 
     if args.eval:
-        _run_eval_cli(args, console)
+        with evaluation_repository():
+            _run_eval_cli(args, console)
         return
 
+    init_db()
     versions = _parse_versions(args.versions) or (
         {k: args.version for k in ("triaje", "devoluciones", "soporte_tecnico", "consultas", "qa")}
         if args.version

@@ -1,5 +1,10 @@
 """Repository Pattern: abstrae el acceso a datos para las herramientas y el pipeline."""
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import date
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from sqlalchemy import Engine, func, select
@@ -23,9 +28,13 @@ def _tokens(text: str) -> set[str]:
 class SupportRepository:
     """Repositorio de acceso a CRM, ERP, Catálogo, Knowledge Base, Incidencias y RMAs."""
 
-    def __init__(self, engine: Engine):
+    def __init__(self, engine: Engine, *, as_of: date | None = None):
         self.engine = engine
+        self.as_of = as_of
         self._session_factory = build_session_factory(engine)
+
+    def current_date(self) -> date:
+        return self.as_of or date.today()
 
     def get_cliente(self, cliente_id: str) -> dict[str, Any] | None:
         cid = cliente_id.strip().upper()
@@ -130,7 +139,7 @@ class SupportRepository:
 _DEFAULT_REPO: SupportRepository | None = None
 
 
-def init_db(url: str | None = None, *, reset: bool = False) -> SupportRepository:
+def init_db(url: str | None = None, *, reset: bool = False, as_of: date | None = None) -> SupportRepository:
     """Inicializa las tablas y las puebla con datos sintéticos si están vacías."""
     global _DEFAULT_REPO
     engine = build_engine(url)
@@ -139,9 +148,24 @@ def init_db(url: str | None = None, *, reset: bool = False) -> SupportRepository
     Base.metadata.create_all(engine)
     session_factory = build_session_factory(engine)
     with session_factory() as session:
-        seed_database(session)
-    _DEFAULT_REPO = SupportRepository(engine)
+        seed_database(session, as_of=as_of)
+    _DEFAULT_REPO = SupportRepository(engine, as_of=as_of)
     return _DEFAULT_REPO
+
+
+@contextmanager
+def evaluation_repository() -> Iterator[SupportRepository]:
+    """Use a fresh SQLite fixture for one CLI evaluation, including worker threads."""
+    global _DEFAULT_REPO
+    previous = _DEFAULT_REPO
+    with TemporaryDirectory(prefix="techstore-eval-") as directory:
+        db_path = (Path(directory) / "evaluation.db").as_posix()
+        repo = init_db(f"sqlite:///{db_path}", as_of=date(2026, 1, 15))
+        try:
+            yield repo
+        finally:
+            _DEFAULT_REPO = previous
+            repo.engine.dispose()
 
 
 def get_repo() -> SupportRepository:

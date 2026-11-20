@@ -18,9 +18,12 @@ class TicketContext:
 
 
 def generar_contexto(ticket: dict) -> str:
-    cliente = get_repo().get_cliente(ticket["cliente_id"]) or {}
+    repo = get_repo()
+    cliente = repo.get_cliente(ticket["cliente_id"]) or {}
+    fecha_contexto = f"Fecha de referencia: {repo.as_of.isoformat()}\n" if repo.as_of else ""
     return (
         f"TICKET {ticket.get('id', 'N/A')}\n"
+        f"{fecha_contexto}"
         f"Cliente: {cliente.get('nombre', 'Desconocido')} (ID: {ticket['cliente_id']})\n"
         f"Pedido referenciado: {ticket.get('pedido_id') or 'ninguno'}\n"
         f"Asunto: {ticket.get('asunto', '')}\n"

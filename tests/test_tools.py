@@ -1,4 +1,7 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
+from tempfile import TemporaryDirectory
 import pytest
 from langchain_core.messages import AIMessage
 from langgraph.graph import START, MessagesState, StateGraph
@@ -122,3 +125,25 @@ def test_asignacion_de_herramientas():
 def test_customer_tools_require_runtime_identity(tool, args, error_key):
     assert "Acceso denegado" in json.loads(tool.invoke({**args, "cliente_id": "C900"}))[error_key]
     assert "Acceso denegado" in invoke_scoped(tool, {**args, "cliente_id": "C901"})[error_key]
+
+
+def test_evaluation_repository_keeps_return_age_fixed_and_isolates_data(tmp_path, monkeypatch):
+    from src.data import repositories
+
+    previous = get_repo()
+    monkeypatch.setattr(repositories, "TemporaryDirectory", partial(TemporaryDirectory, dir=tmp_path))
+    for _ in range(2):
+        with repositories.evaluation_repository() as repo:
+            assert repo is not previous
+            with ThreadPoolExecutor(max_workers=1) as workers:
+                eligibility = workers.submit(
+                    invoke_scoped,
+                    verificar_devolucion,
+                    {"pedido_id": "P9002", "sku": "SKU-007"},
+                    "C901",
+                ).result()
+            assert eligibility["dias_desde_entrega"] == 45
+            assert eligibility["plazo_dias"] == 30
+            assert eligibility["elegible"] is False
+        assert get_repo() is previous
+        assert not repo.engine.url.database or not (tmp_path / repo.engine.url.database).exists()

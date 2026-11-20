@@ -40,7 +40,7 @@ def evaluar_devolucion(pedido_id: str, sku: str, cliente_id: str) -> dict:
     cliente = repo.get_cliente(pedido["cliente_id"])
     segmento = cliente["segmento"] if cliente else "Estándar"
     plazo = config.DIAS_DEVOLUCION_VIP if segmento == "VIP" else config.DIAS_DEVOLUCION_ESTANDAR
-    dias = (date.today() - date.fromisoformat(pedido["fecha_entrega"])).days
+    dias = (repo.current_date() - date.fromisoformat(pedido["fecha_entrega"])).days
     restantes = plazo - dias
     return {
         "elegible": restantes >= 0,
