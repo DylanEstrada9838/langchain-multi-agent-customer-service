@@ -156,8 +156,9 @@ def make_pipeline_target(
         res = procesar_ticket(_scenario_to_ticket(sc), sys_instance)
         return {
             "stage": "pipeline",
-            "categoria": res.clasificacion.categoria,
-            "prioridad": res.clasificacion.prioridad,
+            "categoria": res.clasificacion.categoria if res.clasificacion else None,
+            "prioridad": res.clasificacion.prioridad if res.clasificacion else None,
+            "failed_stage": res.failed_stage,
             "especialista": res.especialista,
             "escalado_humano": res.escalado_humano,
             "motivo_escalado": res.motivo_escalado,
@@ -232,6 +233,8 @@ def qa_quality_gate(run: Any, example: Any) -> dict[str, Any]:
     if out.get("stage") == "qa":
         ok = all((out.get("stage_checks") or {}).values())
         return _result("qa_quality_gate", ok, "QA rechaza borrador contradictorio")
+    if out.get("failed_stage"):
+        return _result("qa_quality_gate", False, f"Fallo de ejecucion: {out['failed_stage']}")
     veredicto = (out.get("qa") or {}).get("veredicto")
     ok = veredicto is not None and (veredicto in ("aprobado", "reescrito") or bool(out.get("escalado_humano")))
     return _result("qa_quality_gate", ok, f"veredicto={veredicto}")

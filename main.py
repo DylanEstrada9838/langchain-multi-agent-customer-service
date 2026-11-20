@@ -223,9 +223,13 @@ def main():
         esc_tag = f" | [bold red]ESCALADO ({r.motivo_escalado})[/]" if r.escalado_humano else ""
         tools_used = ", ".join(f"{tc.tool}" for tc in r.tool_calls) or "none"
         qa_status = r.qa.veredicto if r.qa is not None else "error"
+        c = r.clasificacion
+        routing = (
+            f"[cyan]{c.categoria}[/] | prioridad {c.prioridad} | {c.segmento_cliente} -> {r.especialista} | "
+            if c else ""
+        )
         console.print(
-            f"[cyan]{r.clasificacion.categoria}[/] | prioridad {r.clasificacion.prioridad} | "
-            f"{r.clasificacion.segmento_cliente} -> {r.especialista} | "
+            routing +
             f"Tools: [{tools_used}] | QA: {qa_status} (intentos: {r.intentos_qa}) | "
             f"Tokens: {r.total_tokens}{esc_tag}"
         )
@@ -236,12 +240,13 @@ def main():
         table.add_column(col)
     for r in resultados:
         q = r.qa
+        c = r.clasificacion
         table.add_row(
             r.ticket_id,
-            r.clasificacion.categoria,
-            r.clasificacion.prioridad,
-            r.clasificacion.segmento_cliente,
-            r.especialista,
+            c.categoria if c else "-",
+            c.prioridad if c else "-",
+            c.segmento_cliente if c else "-",
+            r.especialista or "-",
             str(len(r.tool_calls)),
             f"{q.precision}/{q.politica}/{q.tono}/{q.completitud}" if q else "-",
             f"{q.veredicto if q else 'error'} ({r.intentos_qa})",

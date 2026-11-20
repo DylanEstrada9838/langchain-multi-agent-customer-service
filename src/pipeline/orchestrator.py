@@ -1,7 +1,7 @@
 """Orquestación: Triaje -> Especialista (con bucle de reintento ante rechazo de QA) -> QA / Escalado a humano."""
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -57,16 +57,20 @@ class SistemaMultiagente:
         }[categoria]
 
 
+FailureStage = Literal["context", "specialist", "specialist_retry", "qa"]
+
+
 class ResultadoTicket(BaseModel):
     ticket_id: str
-    clasificacion: ClasificacionTicket
-    especialista: str
-    borrador: BorradorRespuesta
+    clasificacion: ClasificacionTicket | None
+    especialista: str | None
+    borrador: BorradorRespuesta | None
     qa: EvaluacionQA | None
     respuesta_final: str
     intentos_qa: int = 1
     escalado_humano: bool = False
     motivo_escalado: str | None = None
+    failed_stage: FailureStage | None = None
     versiones_agentes: dict[str, str] = Field(default_factory=dict)
     metricas_agentes: list[AgentStepMetrics] = Field(default_factory=list)
     tool_calls: list[ToolCallTrace] = Field(default_factory=list)
@@ -150,19 +154,25 @@ def _run(agent, prompt: str, *, context: TicketContext, agent_name: str = "agent
 
 def _evaluar_escalado(
     triaje_fallido: bool,
-    borrador: BorradorRespuesta,
+    borrador: BorradorRespuesta | None,
     qa: EvaluacionQA | None,
     intentos_qa: int,
+    failed_stage: FailureStage | None,
 ) -> tuple[bool, str | None]:
     """Determina si el ticket debe escalarse a un agente humano y por qué motivo."""
     motivos: list[str] = []
     if triaje_fallido:
         motivos.append("Fallo en agente de triaje")
-    if borrador.requiere_escalado:
+    if borrador is not None and borrador.requiere_escalado:
         motivos.append("Especialista solicitó escalado a humano")
-    if qa is None:
-        motivos.append("QA no pudo completar una evaluación válida")
-    elif qa.veredicto == "rechazado":
+    if failed_stage:
+        motivos.append({
+            "context": "No se pudo preparar el contexto del ticket",
+            "specialist": "No se pudo completar la respuesta del especialista",
+            "specialist_retry": "No se pudo completar el reintento del especialista",
+            "qa": "QA no pudo completar una evaluación válida",
+        }[failed_stage])
+    if qa is not None and qa.veredicto == "rechazado":
         motivos.append(f"QA rechazó la respuesta tras {intentos_qa} intento(s): {qa.observaciones}")
     return (bool(motivos), "; ".join(motivos) if motivos else None)
 
@@ -175,15 +185,55 @@ def procesar_ticket(
 ) -> ResultadoTicket:
     t0 = time.time()
     retries = config.MAX_QA_RETRIES if max_qa_retries is None else max_qa_retries
-    ctx = generar_contexto(ticket)
-    context = TicketContext(ticket["cliente_id"])
     metricas: list[AgentStepMetrics] = []
+    usados: dict[str, str] = {}
+    clasif = nombre_esp = borrador = qa = None
+    triaje_fallido = False
+    intentos_qa = 0
+
+    def finish(failed_stage: FailureStage | None = None) -> ResultadoTicket:
+        escalado, motivo_escalado = _evaluar_escalado(triaje_fallido, borrador, qa, intentos_qa, failed_stage)
+        if failed_stage or qa is None or qa.veredicto == "rechazado":
+            respuesta_final = "Tu caso requiere la revisión de un especialista humano de " + config.EMPRESA_NOMBRE + "."
+        else:
+            respuesta_final = qa.respuesta_final
+
+        all_tools = [tc for m in metricas for tc in m.tool_calls]
+        total_tokens = sum(m.total_tokens for m in metricas)
+        total_cost = round(sum(m.cost_usd for m in metricas), 6)
+        elapsed = round(time.time() - t0, 2)
+
+        return ResultadoTicket(
+            ticket_id=ticket.get("id", "N/A"),
+            clasificacion=clasif,
+            especialista=nombre_esp,
+            borrador=borrador,
+            qa=qa,
+            respuesta_final=respuesta_final,
+            intentos_qa=intentos_qa,
+            escalado_humano=escalado,
+            motivo_escalado=motivo_escalado,
+            failed_stage=failed_stage,
+            versiones_agentes=usados,
+            metricas_agentes=metricas,
+            tool_calls=all_tools,
+            total_tokens=total_tokens,
+            cost_usd=total_cost,
+            ttft_seconds=elapsed,
+            segundos=elapsed,
+        )
+
+    try:
+        context = TicketContext(ticket["cliente_id"])
+        ctx = generar_contexto(ticket)
+    except Exception:
+        return finish("context")
 
     triaje_ver = sistema.versiones.get("triaje", active_version("triaje"))
     qa_ver = sistema.versiones.get("qa", active_version("qa"))
 
     # Paso 1: Triaje
-    triaje_fallido = False
+    usados["triaje"] = triaje_ver
     try:
         clasif, m_triaje = _run(
             sistema.triaje, steps.paso_triaje(ctx), context=context, agent_name="triaje", version=triaje_ver
@@ -205,12 +255,17 @@ def procesar_ticket(
     esp_ver = sistema.versiones.get(nombre_esp, active_version(nombre_esp))
     agente = sistema.especialista(clasif.categoria)
 
-    borrador, m_esp = _run(
-        agente, steps.paso_resolucion(ctx, clasif), context=context, agent_name=nombre_esp, version=esp_ver
-    )
-    metricas.append(m_esp)
+    usados[nombre_esp] = esp_ver
+    try:
+        draft, m_esp = _run(
+            agente, steps.paso_resolucion(ctx, clasif), context=context, agent_name=nombre_esp, version=esp_ver
+        )
+        metricas.append(m_esp)
+        borrador = BorradorRespuesta.model_validate(draft)
+    except Exception:
+        return finish("specialist")
 
-    intentos_qa = 0
+    usados["qa"] = qa_ver
     while True:
         intentos_qa += 1
         try:
@@ -222,48 +277,23 @@ def procesar_ticket(
             qa = EvaluacionQA.model_validate(assessment)
         except Exception:
             qa = None
-            break
+            return finish("qa")
 
         if qa.veredicto != "rechazado" or intentos_qa > retries or borrador.requiere_escalado:
             break
 
-        borrador, m_esp_retry = _run(
-            agente,
-            steps.paso_correccion(ctx, clasif, borrador, qa.observaciones),
-            context=context, agent_name=nombre_esp, version=esp_ver,
-        )
-        metricas.append(m_esp_retry)
+        try:
+            draft, m_esp_retry = _run(
+                agente,
+                steps.paso_correccion(ctx, clasif, borrador, qa.observaciones),
+                context=context, agent_name=nombre_esp, version=esp_ver,
+            )
+            metricas.append(m_esp_retry)
+            borrador = BorradorRespuesta.model_validate(draft)
+        except Exception:
+            return finish("specialist_retry")
 
-    escalado, motivo_escalado = _evaluar_escalado(triaje_fallido, borrador, qa, intentos_qa)
-    if qa is None or qa.veredicto == "rechazado":
-        respuesta_final = "Tu caso requiere la revisión de un especialista humano de " + config.EMPRESA_NOMBRE + "."
-    else:
-        respuesta_final = qa.respuesta_final
-
-    usados = {"triaje": triaje_ver, nombre_esp: esp_ver, "qa": qa_ver}
-    all_tools = [tc for m in metricas for tc in m.tool_calls]
-    total_tokens = sum(m.total_tokens for m in metricas)
-    total_cost = round(sum(m.cost_usd for m in metricas), 6)
-    elapsed = round(time.time() - t0, 2)
-
-    return ResultadoTicket(
-        ticket_id=ticket.get("id", "N/A"),
-        clasificacion=clasif,
-        especialista=nombre_esp,
-        borrador=borrador,
-        qa=qa,
-        respuesta_final=respuesta_final,
-        intentos_qa=intentos_qa,
-        escalado_humano=escalado,
-        motivo_escalado=motivo_escalado,
-        versiones_agentes=usados,
-        metricas_agentes=metricas,
-        tool_calls=all_tools,
-        total_tokens=total_tokens,
-        cost_usd=total_cost,
-        ttft_seconds=elapsed,
-        segundos=elapsed,
-    )
+    return finish()
 
 
 def ticket_personalizado(mensaje: str, cliente_id: str, pedido_id: str | None = None) -> dict:

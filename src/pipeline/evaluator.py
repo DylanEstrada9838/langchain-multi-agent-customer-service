@@ -345,12 +345,13 @@ def evaluate_pipeline(
             )
             continue
 
-        cat_ok = res.clasificacion.categoria == exp_r["categoria"]
+        categoria = res.clasificacion.categoria if res.clasificacion else None
+        cat_ok = categoria == exp_r["categoria"]
         esp_ok = res.especialista == exp_r["especialista"]
         esc_ok = res.escalado_humano == exp_r["escalado_humano"]
         tools_ok, recall = _check_tools_match(sc["expected_tool_calls"], res.tool_calls)
         veredicto = res.qa.veredicto if res.qa else None
-        qa_ok = res.qa is not None and (veredicto in ("aprobado", "reescrito") or res.escalado_humano)
+        qa_ok = res.failed_stage is None and res.qa is not None and (veredicto in ("aprobado", "reescrito") or res.escalado_humano)
 
         cat_hits += int(cat_ok)
         esp_hits += int(esp_ok)
@@ -375,7 +376,7 @@ def evaluate_pipeline(
         failed_keys = [k for k, v in checks.items() if not v]
         status_str = "PASS" if passed_sc else f"FAIL ({', '.join(failed_keys)})"
         print(
-            f"{status_str} [{res.clasificacion.categoria}->{res.especialista}, QA={veredicto or 'error'}({res.intentos_qa}), "
+            f"{status_str} [{categoria or '-'}->{res.especialista or '-'}, QA={veredicto or 'error'}({res.intentos_qa}), "
             f"esc={res.escalado_humano}, {res.segundos}s]",
             flush=True,
         )
@@ -390,7 +391,8 @@ def evaluate_pipeline(
                 segundos=res.segundos,
                 total_tokens=res.total_tokens,
                 detalles={
-                    "clasificacion": res.clasificacion.model_dump(),
+                    "clasificacion": res.clasificacion.model_dump() if res.clasificacion else None,
+                    "failed_stage": res.failed_stage,
                     "especialista": res.especialista,
                     "qa": res.qa.model_dump() if res.qa is not None else None,
                     "intentos_qa": res.intentos_qa,

@@ -339,3 +339,52 @@ def test_incomplete_qa_escalates_without_releasing_text():
     assert result.intentos_qa == sistema.consultas.calls == 1
     assert "especialista humano" in result.respuesta_final
     assert incomplete["respuesta_final"] not in result.respuesta_final
+
+
+@pytest.mark.parametrize(
+    ("failed_stage", "expected_agents", "qa_attempts"),
+    [
+        ("context", [], 0),
+        ("specialist", ["triaje"], 0),
+        ("specialist_retry", ["triaje", "consultas", "qa"], 1),
+    ],
+)
+def test_processing_failure_retains_ticket(monkeypatch, failed_stage, expected_agents, qa_attempts):
+    from src.pipeline import orchestrator
+    from src.pipeline.langsmith_eval import qa_quality_gate
+
+    rejected = EvaluacionQA(
+        precision=1, politica=1, tono=4, completitud=3, veredicto="rechazado",
+        respuesta_final="Rejected text", observaciones="Check the order",
+    )
+    sistema = _sistema("consulta", qas=rejected)
+    original_invoke = sistema.consultas.invoke
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("private error details")
+
+    def fail_on_retry(*args, **kwargs):
+        if sistema.consultas.calls:
+            fail()
+        return original_invoke(*args, **kwargs)
+
+    if failed_stage == "context":
+        monkeypatch.setattr(orchestrator, "generar_contexto", fail)
+    elif failed_stage == "specialist":
+        monkeypatch.setattr(sistema.consultas, "invoke", fail)
+    else:
+        monkeypatch.setattr(sistema.consultas, "invoke", fail_on_retry)
+
+    result = procesar_ticket(TICKETS[0], sistema, max_qa_retries=1)
+    assert result.ticket_id == TICKETS[0]["id"]
+    assert result.failed_stage == failed_stage
+    assert result.escalado_humano
+    assert result.intentos_qa == qa_attempts
+    assert [metric.agent for metric in result.metricas_agentes] == expected_agents
+    assert (result.clasificacion is None) == (failed_stage == "context")
+    assert "especialista humano" in result.respuesta_final
+    assert "private error details" not in result.respuesta_final
+    assert rejected.respuesta_final not in result.respuesta_final
+    assert (result.borrador is not None) == (failed_stage == "specialist_retry")
+    assert result.qa == (rejected if failed_stage == "specialist_retry" else None)
+    assert qa_quality_gate({"outputs": result.model_dump()}, {})["score"] == 0
