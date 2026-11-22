@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "created_at": "2026-11-20T14:34:30+00:00",
+  "versions": {
+    "triaje": "v4",
+    "devoluciones": "v4",
+    "soporte_tecnico": "v4",
+    "consultas": "v4",
+    "qa": "v3"
+  },
+  "experiment": "pipeline-mixed-4c42da84",
+  "total_examples": 23,
+  "metrics": {
+    "pass_rate": 0.913,
+    "escalation_accuracy": 1.0,
+    "mean_qa_politica": 5.0,
+    "first_pass_qa_approval_rate": 1.0,
+    "avg_tokens": 8905.5,
+    "avg_cost_usd": 0.001652,
+    "avg_latency_seconds": 12.04,
+    "avg_ttft_seconds": 12.04
+  }
+}
