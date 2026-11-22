@@ -9,18 +9,18 @@ from pydantic import BaseModel
 
 from src import config
 from src.agents import active_version, get_active_versions
-from src.llm import calculate_cost
-from src.pipeline.evaluator import (
-    DEFAULT_DATASET_PATH,
-    _scenario_to_ticket,
-    evaluate_qa_scenario,
-    load_eval_dataset,
-)
+from src.data.repositories import evaluation_repository
+from src.pipeline import steps
+from src.pipeline.context import TicketContext, generar_contexto
+from src.pipeline.eval_dataset import load_eval_dataset, scenario_to_ticket
+from src.pipeline.eval_provenance import evaluation_provenance
+from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
 from src.pipeline.scenario_checks import ScenarioChecks, check_scenario, check_tools
 from src.pipeline.quality_gate import compute_pipeline_metrics
 from src.pipeline.orchestrator import (
     SistemaMultiagente,
     ToolCallTrace,
+    _run,
     construir_sistema,
     procesar_ticket,
 )
@@ -41,7 +41,7 @@ def scenario_to_langsmith_example(sc: dict[str, Any], dataset_name: str) -> dict
     context = sc.get("context") or {}
     qa_inputs = {}
     if context.get("stage_under_test") == "qa":
-        qa_inputs = {"expected_routing": sc["expected_routing"], "assertions": sc["assertions"]}
+        qa_inputs = {"expected_routing": sc["expected_routing"]}
     return {
         "id": example_id,
         "inputs": {
@@ -75,7 +75,7 @@ def sync_dataset_to_langsmith(
     """Sincroniza `data/eval_dataset.jsonl` con un Dataset de LangSmith de forma idempotente."""
     name = dataset_name or config.LANGSMITH_DATASET_NAME
     ls_client = client or Client()
-    scenarios = load_eval_dataset(dataset_path or DEFAULT_DATASET_PATH)
+    scenarios = load_eval_dataset(dataset_path)
 
     created = False
     if ls_client.has_dataset(dataset_name=name):
@@ -130,7 +130,7 @@ def make_pipeline_target(
 
     Recibe `inputs` de un Example (`id`, `category`, `context`, `user_input`) y devuelve un dict
     JSON-serializable que consumirán los evaluators (Step 3). Los escenarios con
-    `stage_under_test == "qa"` se ejecutan solo contra el agente QA, igual que `evaluate_pipeline`.
+    `stage_under_test == "qa"` se ejecutan solo contra el agente QA.
     """
     sys_instance = sistema or construir_sistema(llm=llm, versions=versions)
 
@@ -142,24 +142,36 @@ def make_pipeline_target(
             "user_input": inputs["user_input"],
         }
 
+        ticket = scenario_to_ticket(sc)
         if sc["context"].get("stage_under_test") == "qa":
-            sc["expected_routing"] = inputs["expected_routing"]
-            sc["assertions"] = inputs["assertions"]
-            qa_ver = sys_instance.versiones.get("qa", active_version("qa"))
-            res_qa = evaluate_qa_scenario(sc, version=qa_ver, agent=sys_instance.qa)
-            cost_qa = calculate_cost(config.DEFAULT_LLM_MODEL, int(res_qa.total_tokens * 0.7), int(res_qa.total_tokens * 0.3))
+            routing = inputs["expected_routing"]
+            classification = ClasificacionTicket(
+                categoria=routing["categoria"],
+                prioridad=routing["prioridad"],
+                segmento_cliente=routing["segmento_cliente"],
+                resumen=inputs["user_input"][:80],
+                pedido_id=ticket["pedido_id"],
+                justificacion="eval_override",
+            )
+            draft = BorradorRespuesta.model_validate(sc["context"]["specialist_draft_override"])
+            qa_ver = sys_instance.versiones.get("qa") or active_version("qa")
+            assessment, metrics = _run(
+                sys_instance.qa,
+                steps.paso_qa(generar_contexto(ticket), classification, draft),
+                context=TicketContext(ticket["cliente_id"]), agent_name="qa", version=qa_ver,
+            )
+            qa = EvaluacionQA.model_validate(assessment)
             return {
                 "stage": "qa",
-                "qa": res_qa.detalles.get("qa", {}),
-                "stage_checks": res_qa.checks,
-                "tool_calls": [tc.model_dump() for tc in res_qa.actual_tools],
-                "total_tokens": res_qa.total_tokens,
-                "cost_usd": cost_qa,
-                "ttft_seconds": res_qa.segundos,
-                "segundos": res_qa.segundos,
+                "qa": qa.model_dump(),
+                "tool_calls": [call.model_dump() for call in metrics.tool_calls],
+                "total_tokens": metrics.total_tokens,
+                "cost_usd": metrics.cost_usd,
+                "ttft_seconds": None,
+                "segundos": metrics.segundos,
             }
 
-        res = procesar_ticket(_scenario_to_ticket(sc), sys_instance)
+        res = procesar_ticket(ticket, sys_instance)
         return {
             "stage": "pipeline",
             "categoria": res.clasificacion.categoria if res.clasificacion else None,
@@ -229,7 +241,7 @@ def escalado_match(run: Any, example: Any) -> dict[str, Any]:
 def tool_trajectory_match(run: Any, example: Any) -> dict[str, Any]:
     out, ref = _outputs_of(run), _ref_of(example)
     if out.get("stage") == "qa":
-        ok = bool((out.get("stage_checks") or {}).get("no_tools_called", False))
+        ok = out.get("tool_calls") == []
         return _result("tool_trajectory_match", ok, "QA no debe llamar herramientas")
     actual = [ToolCallTrace(**tc) for tc in out.get("tool_calls", [])]
     rules = ScenarioChecks.model_validate(ref.get("assertions") or {})
@@ -240,8 +252,7 @@ def tool_trajectory_match(run: Any, example: Any) -> dict[str, Any]:
 def qa_quality_gate(run: Any, example: Any) -> dict[str, Any]:
     out = _outputs_of(run)
     if out.get("stage") == "qa":
-        checks = out.get("stage_checks") or {}
-        ok = bool(checks) and all(checks.values())
+        ok = (out.get("qa") or {}).get("veredicto") == "rechazado"
         return _result("qa_quality_gate", ok, "QA rechaza borrador contradictorio")
     if out.get("failed_stage"):
         return _result("qa_quality_gate", False, f"Fallo de ejecucion: {out['failed_stage']}")
@@ -286,41 +297,44 @@ CODE_EVALUATORS = [
 _CODE_KEYS = [ev.__name__ for ev in CODE_EVALUATORS]
 
 
-def _pair_to_row(outputs: dict[str, Any] | None, example_inputs: dict[str, Any], example_outputs: dict[str, Any]) -> dict[str, Any]:
-    """Convierte un par (salida del target, ejemplo) en la fila que consume `compute_pipeline_metrics`."""
+def _pair_to_row(outputs, example_inputs, example_outputs, *, feedback=None) -> dict[str, Any]:
     stage = "qa" if (example_inputs.get("context") or {}).get("stage_under_test") == "qa" else "pipeline"
     outputs = outputs or {}
-    if not outputs:  # el target lanzó una excepción: todos los checks cuentan como fallo
-        scores: dict[str, Any] = {k: 0 for k in _CODE_KEYS}
-    else:
+    if not outputs:
+        checks = {key: {"score": 0, "comment": "El escenario no devolvio resultados."} for key in _CODE_KEYS}
+    elif feedback is None:
         run_like, ref_like = {"outputs": outputs}, {"outputs": example_outputs}
-        scores = {ev.__name__: ev(run_like, ref_like)["score"] for ev in CODE_EVALUATORS}
-    return {"scenario_id": example_inputs.get("id", ""), "stage": stage, "scores": scores, "outputs": outputs}
+        checks = {ev.__name__: ev(run_like, ref_like) for ev in CODE_EVALUATORS}
+    else:
+        checks = {item.key: {"score": item.score, "comment": item.comment} for item in feedback}
+
+    comments = {}
+    scores = {}
+    for key in _CODE_KEYS:
+        check = checks.get(key, {"score": 0, "comment": "No se recibio feedback del evaluador."})
+        score = check["score"]
+        not_applicable = stage == "qa" and key in {"categoria_match", "especialista_match", "escalado_match"}
+        optional_assertions = key == "scenario_assertions" and "assertions" not in example_outputs
+        if score is None and not (not_applicable or optional_assertions):
+            score = 0
+        scores[key] = score
+        if score == 0 and check["comment"]:
+            comments[key] = check["comment"]
+    rules = ScenarioChecks.model_validate(example_outputs.get("assertions") or {})
+    if rules.manual_criteria:
+        comments["manual_review"] = ", ".join(str(index) for index in rules.manual_criteria)
+    return {"scenario_id": example_inputs.get("id", ""), "stage": stage, "scores": scores, "outputs": outputs, "comments": comments}
 
 
-def _make_summary_evaluator(key: str):
-    def evaluator(runs: list[Any], examples: list[Any]) -> dict[str, Any]:
-        rows = [
-            _pair_to_row(getattr(r, "outputs", None), e.inputs or {}, e.outputs or {})
-            for r, e in zip(runs, examples)
-        ]
-        return {"key": key, "score": compute_pipeline_metrics(rows)[key]}
-
-    evaluator.__name__ = key
-    return evaluator
-
-
-SUMMARY_METRICS = (
-    "pass_rate",
-    "escalation_accuracy",
-    "mean_qa_politica",
-    "first_pass_qa_approval_rate",
-    "avg_tokens",
-    "avg_cost_usd",
-    "avg_latency_seconds",
-    "avg_ttft_seconds",
-)
-SUMMARY_EVALUATORS = [_make_summary_evaluator(k) for k in SUMMARY_METRICS]
+def summarize_pipeline(runs: list[Any], examples: list[Any]) -> dict:
+    rows = [
+        _pair_to_row(getattr(run, "outputs", None), example.inputs or {}, example.outputs or {})
+        for run, example in zip(runs, examples, strict=True)
+    ]
+    return {"results": [
+        {"key": key, "score": value}
+        for key, value in compute_pipeline_metrics(rows).items() if value is not None
+    ]}
 
 
 # ---------------------------------------------------------------------------
@@ -336,8 +350,12 @@ class ExperimentSummary(BaseModel):
     passed_examples: int
     pass_rate: float
     metric_means: dict[str, float]
-    metrics: dict[str, float]
+    metrics: dict[str, float | None]
     failed_scenarios: dict[str, list[str]]
+    scenario_feedback: dict[str, dict[str, str]]
+    scenario_ids: list[str]
+    partial: bool
+    provenance: dict[str, Any]
 
 
 def summarize_experiment_rows(rows: list[dict[str, Any]]) -> tuple[int, int, dict[str, float], dict[str, list[str]]]:
@@ -362,6 +380,23 @@ def _ci_metadata() -> dict[str, str]:
     return {k.lower(): os.environ[k] for k in keys if os.environ.get(k)}
 
 
+def validate_remote_examples(examples: list[Any], rows: list[dict], dataset_name: str) -> None:
+    expected = {row["id"]: scenario_to_langsmith_example(row, dataset_name) for row in rows}
+    actual = {}
+    for example in examples:
+        name = (example.inputs or {}).get("id")
+        if name in actual:
+            raise ValueError(f"Escenario duplicado en LangSmith: {name}")
+        actual[name] = example
+    missing, extra = sorted(expected.keys() - actual.keys()), sorted(str(key) for key in actual.keys() - expected.keys())
+    changed = sorted(
+        name for name in expected.keys() & actual.keys()
+        if actual[name].inputs != expected[name]["inputs"] or actual[name].outputs != expected[name]["outputs"]
+    )
+    if missing or extra or changed:
+        raise ValueError(f"Dataset LangSmith desactualizado. Faltan={missing}, sobran={extra}, cambiaron={changed}. Ejecuta --sync-dataset y revisa los ejemplos extra.")
+
+
 def run_langsmith_experiment(
     dataset_name: str | None = None,
     *,
@@ -379,39 +414,42 @@ def run_langsmith_experiment(
     name = dataset_name or config.LANGSMITH_DATASET_NAME
     ls_client = client or Client()
     examples = list(ls_client.list_examples(dataset_name=name))
+    validate_remote_examples(examples, load_eval_dataset(), name)
     if category:
-        examples = [e for e in examples if (e.metadata or {}).get("category") == category]
-    examples.sort(key=lambda e: (e.metadata or {}).get("scenario_id", ""))
-    if limit:
+        examples = [example for example in examples if example.inputs["category"] == category]
+    examples.sort(key=lambda example: example.inputs["id"])
+    if limit is not None:
         examples = examples[:limit]
     if not examples:
-        raise ValueError(f"El dataset '{name}' no tiene ejemplos (¿ejecutaste --sync-dataset?).")
+        raise ValueError(f"El dataset '{name}' no tiene ejemplos para este filtro.")
 
-    if any("assertions" not in (example.outputs or {}) for example in examples):
-        raise ValueError("El dataset no contiene las nuevas aserciones. Ejecuta --sync-dataset.")
     used_versions = {**get_active_versions(), **(versions or {})}
+    provenance = evaluation_provenance(used_versions)
     ver_tag = "-".join(sorted(set(used_versions.values()))) if len(set(used_versions.values())) == 1 else "mixed"
     prefix = experiment_prefix or f"pipeline-{ver_tag}"
 
-    results = evaluate(
-        make_pipeline_target(versions=versions, llm=llm),
-        data=examples,
-        evaluators=CODE_EVALUATORS,
-        summary_evaluators=SUMMARY_EVALUATORS,
-        experiment_prefix=prefix,
-        max_concurrency=max_concurrency,
-        client=ls_client,
-        metadata={"versions": used_versions, "kind": "code-evaluators", **_ci_metadata()},
-    )
+    with evaluation_repository():
+        results = evaluate(
+            make_pipeline_target(versions=versions, llm=llm),
+            data=examples,
+            evaluators=CODE_EVALUATORS,
+            summary_evaluators=[summarize_pipeline],
+            experiment_prefix=prefix,
+            max_concurrency=max_concurrency,
+            client=ls_client,
+            metadata={"versions": used_versions, "kind": "code-evaluators", **provenance, **_ci_metadata()},
+        )
 
-    rows = []
-    for r in results:
-        outputs = getattr(r["run"], "outputs", None)
-        ex = r["example"]
-        row = _pair_to_row(outputs, ex.inputs or {}, ex.outputs or {})
-        row["scenario_id"] = (ex.metadata or {}).get("scenario_id", row["scenario_id"])
-        rows.append(row)
+        rows = []
+        for r in results:
+            outputs = getattr(r["run"], "outputs", None)
+            ex = r["example"]
+            row = _pair_to_row(outputs, ex.inputs or {}, ex.outputs or {}, feedback=r["evaluation_results"]["results"])
+            rows.append(row)
 
+    scenario_ids = sorted(row["scenario_id"] for row in rows)
+    if scenario_ids != sorted(example.inputs["id"] for example in examples):
+        raise RuntimeError("LangSmith no devolvio todos los escenarios seleccionados.")
     if all(not row["outputs"] for row in rows):
         raise RuntimeError("Todas las ejecuciones del target fallaron (¿credenciales o red?); no hay resultados que evaluar.")
 
@@ -431,4 +469,8 @@ def run_langsmith_experiment(
         metric_means=means,
         metrics=compute_pipeline_metrics(rows),
         failed_scenarios=failed,
+        scenario_feedback={row["scenario_id"]: row["comments"] for row in rows if row["comments"]},
+        scenario_ids=scenario_ids,
+        partial=category is not None or limit is not None,
+        provenance=provenance,
     )

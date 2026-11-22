@@ -7,7 +7,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from src import config
-from src.pipeline.evaluator import PIPELINE_QUALITY_TARGETS, QualityTargetEvaluation, _evaluate_targets
 
 BASELINE_PATH = config.ROOT / "data" / "baseline_pipeline.json"
 
@@ -23,6 +22,42 @@ REGRESSION_TOLERANCES: dict[str, float] = {
 COST_METRICS = ("avg_tokens", "avg_cost_usd", "avg_latency_seconds", "avg_ttft_seconds")
 
 
+PIPELINE_QUALITY_TARGETS: list[tuple[str, str, float, str]] = [
+    ("1. Hard Gate (Safety & Escalation)", "escalation_accuracy", 0.95, "No fallar en escalados obligatorios ni falsos escalados"),
+    ("1b. Hard Gate (Policy Score / 5)", "mean_qa_politica", 4.50, "Cumplimiento estricto de políticas y titularidad"),
+    ("2. Primary Winner Metric", "pass_rate", 0.85, "% de escenarios resueltos de principio a fin sin ningún fallo"),
+    ("3. Tie-Breaker", "first_pass_qa_approval_rate", 0.80, "% de tickets aprobados por QA a la primera sin reintento"),
+]
+
+class QualityTargetEvaluation(BaseModel):
+    priority: str
+    metric: str
+    value: float
+    target: float
+    passed: bool
+    description: str
+
+
+def _evaluate_targets(
+    target_defs: list[tuple[str, str, float, str]],
+    values: dict[str, float],
+) -> tuple[bool, list[QualityTargetEvaluation]]:
+    evals: list[QualityTargetEvaluation] = []
+    for prio, key, threshold, desc in target_defs:
+        val = values.get(key, 0.0)
+        evals.append(
+            QualityTargetEvaluation(
+                priority=prio,
+                metric=key,
+                value=val,
+                target=threshold,
+                passed=val >= threshold,
+                description=desc,
+            )
+        )
+    return all(e.passed for e in evals), evals
+
+
 class MetricComparison(BaseModel):
     metric: str
     value: float
@@ -34,7 +69,7 @@ class MetricComparison(BaseModel):
 
 class CostComparison(BaseModel):
     metric: str
-    value: float
+    value: float | None
     baseline: float | None = None
     delta_pct: float | None = None
 
@@ -48,19 +83,19 @@ class GateReport(BaseModel):
     experiment_url: str = ""
     versions: dict[str, str] = Field(default_factory=dict)
     total_examples: int = 0
-    metrics: dict[str, float] = Field(default_factory=dict)
+    metrics: dict[str, float | None] = Field(default_factory=dict)
     targets: list[QualityTargetEvaluation] = Field(default_factory=list)
     comparisons: list[MetricComparison] = Field(default_factory=list)
     costs: list[CostComparison] = Field(default_factory=list)
     failed_scenarios: dict[str, list[str]] = Field(default_factory=dict)
+    scenario_feedback: dict[str, dict[str, str]] = Field(default_factory=dict)
+    scenario_ids: list[str] = Field(default_factory=list)
+    partial: bool = False
+    provenance: dict[str, Any] = Field(default_factory=dict)
 
 
-def compute_pipeline_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
-    """Agrega filas `{stage, scores, outputs}` en las métricas del gate (misma definición que `evaluate_pipeline`).
-
-    - `scores`: resultado de los 5 evaluators de código (`{key: 1|0|None}`).
-    - `outputs`: salida del target (vacía si el escenario falló por excepción).
-    """
+def compute_pipeline_metrics(rows: list[dict[str, Any]]) -> dict[str, float | None]:
+    """Aggregate LangSmith scores and measurements for the quality gate."""
     n_all = max(len(rows), 1)
     e2e = [r for r in rows if r.get("stage") != "qa"]
     n_e2e = max(len(e2e), 1)
@@ -78,9 +113,12 @@ def compute_pipeline_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
         and ((r["outputs"].get("qa") or {}).get("veredicto") in ("aprobado", "reescrito"))
     )
     tokens = sum((r.get("outputs") or {}).get("total_tokens", 0) for r in rows)
-    costs = sum((r.get("outputs") or {}).get("cost_usd", 0.0) for r in rows)
-    seconds = sum((r.get("outputs") or {}).get("segundos", 0.0) for r in rows)
-    ttfts = sum((r.get("outputs") or {}).get("ttft_seconds", (r.get("outputs") or {}).get("segundos", 0.0)) for r in rows)
+    def average_observed(key: str, digits: int) -> float | None:
+        values = [(row.get("outputs") or {}).get(key) for row in rows]
+        if not values or None in values:
+            return None
+        return round(sum(values) / len(values), digits)
+
 
     return {
         "pass_rate": round(passed / n_all, 4),
@@ -88,9 +126,9 @@ def compute_pipeline_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
         "mean_qa_politica": round(sum(politica) / max(len(politica), 1), 2),
         "first_pass_qa_approval_rate": round(first_pass / n_e2e, 4),
         "avg_tokens": round(tokens / n_all, 1),
-        "avg_cost_usd": round(costs / n_all, 6),
-        "avg_latency_seconds": round(seconds / n_all, 2),
-        "avg_ttft_seconds": round(ttfts / n_all, 2),
+        "avg_cost_usd": average_observed("cost_usd", 6),
+        "avg_latency_seconds": average_observed("segundos", 2),
+        "avg_ttft_seconds": average_observed("ttft_seconds", 2),
     }
 
 
@@ -105,19 +143,20 @@ def save_baseline(report: GateReport, path: Path | None = None) -> Path:
     p = path or BASELINE_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema": 1,
+        "schema": 2 if report.provenance else 1,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "versions": report.versions,
         "experiment": report.experiment_name,
         "total_examples": report.total_examples,
         "metrics": report.metrics,
+        **({"benchmark_fingerprint": report.provenance["benchmark_fingerprint"]} if report.provenance else {}),
     }
     p.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return p
 
 
 def evaluate_gate(
-    metrics: dict[str, float],
+    metrics: dict[str, float | None],
     *,
     baseline: dict[str, Any] | None = None,
     tolerances: dict[str, float] | None = None,
@@ -126,15 +165,19 @@ def evaluate_gate(
     experiment_url: str = "",
     total_examples: int = 0,
     failed_scenarios: dict[str, list[str]] | None = None,
+    scenario_feedback: dict[str, dict[str, str]] | None = None,
+    scenario_ids: list[str] | None = None,
+    partial: bool = False,
+    provenance: dict[str, Any] | None = None,
 ) -> GateReport:
     """Aplica umbrales absolutos (`PIPELINE_QUALITY_TARGETS`) + regresión frente al baseline."""
-    targets_ok, targets = _evaluate_targets(PIPELINE_QUALITY_TARGETS, metrics)
+    targets_ok, targets = _evaluate_targets(PIPELINE_QUALITY_TARGETS, {key: value for key, value in metrics.items() if value is not None})
     tol = {**REGRESSION_TOLERANCES, **(tolerances or {})}
     base_metrics = (baseline or {}).get("metrics") or {}
 
     comparisons: list[MetricComparison] = []
     for key, tolerance in tol.items():
-        if key not in base_metrics or key not in metrics:
+        if base_metrics.get(key) is None or metrics.get(key) is None:
             continue
         delta = round(metrics[key] - base_metrics[key], 4)
         comparisons.append(
@@ -151,8 +194,9 @@ def evaluate_gate(
     costs: list[CostComparison] = []
     for key in COST_METRICS:
         base = base_metrics.get(key)
-        pct = round((metrics[key] - base) / base * 100, 1) if base else None
-        costs.append(CostComparison(metric=key, value=metrics[key], baseline=base, delta_pct=pct))
+        value = metrics.get(key)
+        pct = round((value - base) / base * 100, 1) if base and value is not None else None
+        costs.append(CostComparison(metric=key, value=value, baseline=base, delta_pct=pct))
 
     regression_ok = not any(c.regressed for c in comparisons)
     return GateReport(
@@ -169,10 +213,16 @@ def evaluate_gate(
         comparisons=comparisons,
         costs=costs,
         failed_scenarios=failed_scenarios or {},
+        scenario_feedback=scenario_feedback or {},
+        scenario_ids=scenario_ids or [],
+        partial=partial,
+        provenance=provenance or {},
     )
 
 
-def _fmt(metric: str, val: float) -> str:
+def _fmt(metric: str, val: float | None) -> str:
+    if val is None:
+        return "-"
     if metric == "mean_qa_politica":
         return f"{val:.2f} / 5"
     if metric == "avg_tokens":
@@ -204,7 +254,9 @@ def render_markdown(report: GateReport) -> str:
         )
 
     lines += ["", "### Regresión vs baseline", ""]
-    if report.comparisons:
+    if report.partial:
+        lines.append("_Ejecucion parcial de diagnostico._")
+    elif report.comparisons:
         lines += ["| Métrica | Resultado | Baseline | Δ | Tolerancia | Estado |", "|---|---:|---:|---:|---:|:---:|"]
         for c in report.comparisons:
             sign = "+" if c.delta > 0 else ""
@@ -223,5 +275,15 @@ def render_markdown(report: GateReport) -> str:
 
     if report.failed_scenarios:
         lines += ["", "### Escenarios con fallos", ""]
-        lines += [f"- `{sid}`: {', '.join(bad)}" for sid, bad in report.failed_scenarios.items()]
+        for sid, checks in report.failed_scenarios.items():
+            lines.append(f"- `{sid}`: {', '.join(checks)}")
+            for check in checks:
+                if comment := report.scenario_feedback.get(sid, {}).get(check):
+                    lines.append(f"  - `{check}` {comment}")
+
+    manual = {sid: feedback["manual_review"] for sid, feedback in report.scenario_feedback.items() if "manual_review" in feedback}
+    if manual:
+        lines += ["", "### Criterios de revision manual (fuera de la puntuacion automatica)", ""]
+        lines.extend(f"- `{sid}`: {criteria}" for sid, criteria in manual.items())
+
     return "\n".join(lines) + "\n"

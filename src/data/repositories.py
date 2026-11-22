@@ -149,6 +149,7 @@ class SupportRepository:
             return rma.to_dict()
 
 
+EVALUATION_DATE = date(2026, 1, 15)
 _DEFAULT_REPO: SupportRepository | None = None
 
 
@@ -173,7 +174,7 @@ def evaluation_repository() -> Iterator[SupportRepository]:
     previous = _DEFAULT_REPO
     with TemporaryDirectory(prefix="techstore-eval-") as directory:
         db_path = (Path(directory) / "evaluation.db").as_posix()
-        repo = init_db(f"sqlite:///{db_path}", as_of=date(2026, 1, 15))
+        repo = init_db(f"sqlite:///{db_path}", as_of=EVALUATION_DATE)
         try:
             yield repo
         finally:

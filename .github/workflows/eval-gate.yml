@@ -12,6 +12,10 @@ on:
       - "src/tools/**"
       - "src/schemas/**"
       - "src/llm/**"
+      - "src/data/**"
+      - "src/config.py"
+      - "tests/**"
+      - "requirements.txt"
       - "data/**"
       - "main.py"
       - "requirements-ci.txt"
@@ -52,27 +56,17 @@ jobs:
         id: validate
         run: |
           python -c "
-          import json, sys
+          import json
           from pathlib import Path
-          import yaml
+          from src.pipeline.eval_provenance import validate_full_report
+          from src.pipeline.quality_gate import GateReport, render_markdown
 
-          report_path = Path('data/latest_eval_report.json')
-          if not report_path.exists():
-              print('::error::No se encontro data/latest_eval_report.json. Ejecuta la evaluacion localmente y haz commit del informe.')
-              sys.exit(1)
-
-          report = json.loads(report_path.read_text(encoding='utf-8'))
-          active = yaml.safe_load(Path('src/agents/active_versions.yaml').read_text(encoding='utf-8'))
-
-          if report.get('versions') != active:
-              print(f'::error::El informe corresponde a versiones {report.get(\"versions\")}, pero active_versions.yaml tiene {active}. Ejecuta la evaluacion localmente con las versiones activas.')
-              sys.exit(1)
-
-          if not report.get('passed'):
-              print('::error::El informe indica que el Quality Gate NO fue superado (umbrales absolutos o regresion detectada).')
-              sys.exit(1)
-
-          print('✅ Informe de evaluacion valido y Quality Gate superado.')
+          report = json.loads(Path('data/latest_eval_report.json').read_text(encoding='utf-8'))
+          validate_full_report(report)
+          markdown = Path('data/latest_eval_report.md').read_text(encoding='utf-8')
+          if markdown != render_markdown(GateReport.model_validate(report)):
+              raise SystemExit('El informe Markdown no corresponde al JSON validado.')
+          print('Informe completo, vigente y aprobado.')
           "
 
       - name: Job summary
@@ -93,7 +87,7 @@ jobs:
             if (fs.existsSync('data/latest_eval_report.md')) {
               body = fs.readFileSync('data/latest_eval_report.md', 'utf8');
             } else {
-              body = `${marker}\n## ⚠️ Eval Quality Gate — sin informe\n\nNo se encontró \`data/latest_eval_report.md\`. Ejecuta la evaluación localmente (\`python main.py --eval --langsmith --fail-on-gate\`) y haz commit del informe.\n`;
+              body = `${marker}\n## ⚠️ Eval Quality Gate — sin informe\n\nNo se encontró \`data/latest_eval_report.md\`. Ejecuta el benchmark LangSmith (\`python main.py --eval --fail-on-gate\`) y haz commit del informe.\n`;
             }
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;

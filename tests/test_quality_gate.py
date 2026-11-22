@@ -2,7 +2,7 @@
 from types import SimpleNamespace
 
 from src.agents import AGENT_BINDINGS, get_active_versions, list_versions
-from src.pipeline.langsmith_eval import SUMMARY_EVALUATORS, SUMMARY_METRICS
+from src.pipeline.langsmith_eval import summarize_pipeline
 from src.pipeline.quality_gate import (
     compute_pipeline_metrics,
     evaluate_gate,
@@ -132,7 +132,7 @@ def test_summary_evaluators_devuelven_las_metricas():
     }
     runs = [SimpleNamespace(outputs=out)]
     examples = [SimpleNamespace(inputs={"id": "E1", "context": {}}, outputs=ref)]
-    got = {ev.__name__: ev(runs, examples)["score"] for ev in SUMMARY_EVALUATORS}
-    assert set(got) == set(SUMMARY_METRICS)
+    got = {entry["key"]: entry["score"] for entry in summarize_pipeline(runs, examples)["results"]}
+    assert "avg_cost_usd" not in got and "avg_ttft_seconds" not in got
     assert got["pass_rate"] == 1.0 and got["mean_qa_politica"] == 4.0
     assert got["first_pass_qa_approval_rate"] == 1.0 and got["avg_tokens"] == 50.0

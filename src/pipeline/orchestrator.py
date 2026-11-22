@@ -4,11 +4,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import BaseModel, Field
 
 from src import config
-from src.agents import AGENT_BINDINGS, active_version, build_agent, get_active_versions
+from src.agents import active_version, build_agent, get_active_versions
 from src.llm import calculate_cost
 from src.pipeline import steps
 from src.pipeline.context import TicketContext, generar_contexto
@@ -38,7 +38,7 @@ class AgentStepMetrics(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
-    cost_usd: float = 0.0
+    cost_usd: float | None = None
     tool_calls: list[ToolCallTrace] = Field(default_factory=list)
 
 
@@ -78,8 +78,8 @@ class ResultadoTicket(BaseModel):
     metricas_agentes: list[AgentStepMetrics] = Field(default_factory=list)
     tool_calls: list[ToolCallTrace] = Field(default_factory=list)
     total_tokens: int = 0
-    cost_usd: float = 0.0
-    ttft_seconds: float = 0.0
+    cost_usd: float | None = None
+    ttft_seconds: float | None = None
     segundos: float
 
 
@@ -134,6 +134,7 @@ def _extract_telemetry(agent_name: str, version: str, out: dict[str, Any], elaps
     tool_calls: list[ToolCallTrace] = []
     in_tok = out_tok = tot_tok = 0
     response_format_name = None
+    costs: list[float | None] = []
     if "structured_response" in out and out["structured_response"] is not None:
         response_format_name = type(out["structured_response"]).__name__
 
@@ -142,9 +143,19 @@ def _extract_telemetry(agent_name: str, version: str, out: dict[str, Any], elaps
     for msg in messages:
         usage = getattr(msg, "usage_metadata", None) or (msg.get("usage_metadata") if isinstance(msg, dict) else None)
         if isinstance(usage, dict):
-            in_tok += int(usage.get("input_tokens", 0) or 0)
-            out_tok += int(usage.get("output_tokens", 0) or 0)
-            tot_tok += int(usage.get("total_tokens", 0) or 0)
+            input_count = usage.get("input_tokens")
+            output_count = usage.get("output_tokens")
+            in_tok += int(input_count or 0)
+            out_tok += int(output_count or 0)
+            tot_tok += int(usage.get("total_tokens") or 0)
+            metadata = (msg.get("response_metadata") if isinstance(msg, dict) else getattr(msg, "response_metadata", None)) or {}
+            model = metadata.get("model_name") or metadata.get("model")
+            costs.append(
+                calculate_cost(model, int(input_count), int(output_count))
+                if input_count is not None and output_count is not None else None
+            )
+        elif isinstance(msg, AIMessage):
+            costs.append(None)
 
         raw_calls = getattr(msg, "tool_calls", None) or (msg.get("tool_calls") if isinstance(msg, dict) else None) or []
         for tc in raw_calls:
@@ -160,7 +171,7 @@ def _extract_telemetry(agent_name: str, version: str, out: dict[str, Any], elaps
                 result=results.get(call_id),
             ))
 
-    cost = calculate_cost(config.DEFAULT_LLM_MODEL, in_tok, out_tok)
+    cost = round(sum(value for value in costs if value is not None), 6) if costs and None not in costs else None
     return AgentStepMetrics(
         agent=agent_name,
         version=version,
@@ -232,7 +243,8 @@ def procesar_ticket(
 
         all_tools = [tc for m in metricas for tc in m.tool_calls]
         total_tokens = sum(m.total_tokens for m in metricas)
-        total_cost = round(sum(m.cost_usd for m in metricas), 6)
+        costs = [m.cost_usd for m in metricas]
+        total_cost = round(sum(value for value in costs if value is not None), 6) if costs and None not in costs else None
         elapsed = round(time.time() - t0, 2)
 
         return ResultadoTicket(
@@ -251,7 +263,6 @@ def procesar_ticket(
             tool_calls=all_tools,
             total_tokens=total_tokens,
             cost_usd=total_cost,
-            ttft_seconds=elapsed,
             segundos=elapsed,
         )
 

@@ -9,13 +9,15 @@ MODEL_PRICING_PER_1M: dict[str, dict[str, float]] = {
     # Anthropic
     "claude-3-5-sonnet-20241022": {"input": 3.00, "output": 15.00},
     "claude-3-5-haiku-20241022": {"input": 0.80, "output": 4.00},
-    # Fallback por defecto (asume gpt-4o-mini)
-    "default": {"input": 0.15, "output": 0.60},
 }
 
 
-def calculate_cost(model_name: str | None, input_tokens: int, output_tokens: int) -> float:
+def calculate_cost(model_name: str | None, input_tokens: int, output_tokens: int) -> float | None:
     """Calcula el coste en USD para una llamada con input y output tokens."""
-    rates = MODEL_PRICING_PER_1M.get(model_name or "", MODEL_PRICING_PER_1M["default"])
+    if model_name == "gpt-4o-mini-2024-07-18":
+        model_name = "gpt-4o-mini"
+    rates = MODEL_PRICING_PER_1M.get(model_name or "")
+    if rates is None:
+        return None
     cost = (input_tokens * rates["input"] + output_tokens * rates["output"]) / 1_000_000.0
     return round(cost, 6)

@@ -72,11 +72,9 @@ def load_spec(
 
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     tools, schema = AGENT_BINDINGS[name]
-    model_cfg = ModelConfig().with_overrides(
-        **(raw.get("model") or {}),
-        provider=provider,
-        model_name=model_name,
-    )
+    model_overrides = dict(raw.get("model") or {})
+    model_overrides.update({key: value for key, value in {"provider": provider, "model_name": model_name}.items() if value is not None})
+    model_cfg = ModelConfig().with_overrides(**model_overrides)
     prompt = raw["system_prompt"].replace("{empresa_nombre}", config.EMPRESA_NOMBRE).strip()
 
     return AgentSpec(

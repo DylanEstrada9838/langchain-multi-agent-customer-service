@@ -3,7 +3,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.data.sample_tickets import TICKETS
-from src.pipeline.evaluator import evaluate_pipeline, load_eval_dataset
+from src.pipeline.eval_dataset import load_eval_dataset
 from src.pipeline.langsmith_eval import scenario_to_langsmith_example, sync_dataset_to_langsmith
 from src.pipeline.orchestrator import SistemaMultiagente, procesar_ticket
 from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
@@ -27,6 +27,7 @@ class Stub:
         self.calls += 1
         ai_msg = AIMessage(
             content="ok",
+            response_metadata={"model_name": "gpt-4o"},
             tool_calls=self._tool_calls,
             usage_metadata={
                 "input_tokens": self._tokens[0],
@@ -173,16 +174,13 @@ def test_telemetria_por_agente_y_evaluador():
     ]
     assert r.total_tokens == (130 + 250 + 190)
 
-    # Verifica evaluate_pipeline sobre EVAL-001 con el sistema stub
-    eval_001 = load_eval_dataset(limit=1)
-    report = evaluate_pipeline(eval_001, sistema=sistema)
-    assert report.total_scenarios == 1
-    assert report.passed_scenarios == 1
-    assert report.pass_rate == 1.0
-    assert report.quality_gate_passed is True
-    assert all(qt.passed for qt in report.quality_targets)
-    assert report.diagnostics["tool_trajectory_recall"] == 1.0
-    assert report.diagnostics["category_accuracy"] == 1.0
+    from src.pipeline.langsmith_eval import CODE_EVALUATORS, make_pipeline_target
+
+    example = scenario_to_langsmith_example(load_eval_dataset()[0], "golden")
+    run = {"outputs": make_pipeline_target(sistema)(example["inputs"])}
+    assert all(check(run, example)["score"] == 1 for check in CODE_EVALUATORS)
+    assert r.cost_usd == 0.002325
+    assert r.ttft_seconds is None
 
 
 def test_sync_dataset_to_langsmith_idempotente():
@@ -232,7 +230,7 @@ def test_sync_dataset_to_langsmith_idempotente():
     assert fake_client.created_calls == 23
     assert fake_client.updated_calls == 23
 
-    sample_row = load_eval_dataset(limit=1)[0]
+    sample_row = load_eval_dataset()[0]
     ex = scenario_to_langsmith_example(sample_row, "test-golden-v1")
     assert ex["inputs"]["id"] == "EVAL-001"
     assert ex["outputs"]["expected_routing"]["categoria"] == "devolucion"
@@ -243,7 +241,7 @@ def test_make_pipeline_target_envuelve_procesar_ticket(monkeypatch):
     import json
 
     from src.pipeline import langsmith_eval as le
-    from src.pipeline.evaluator import load_eval_dataset
+    from src.pipeline.eval_dataset import load_eval_dataset
     from src.pipeline.langsmith_eval import make_pipeline_target, scenario_to_langsmith_example
     from src.pipeline.orchestrator import ResultadoTicket, SistemaMultiagente, ToolCallTrace
     from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
@@ -311,7 +309,7 @@ def test_code_evaluators_replican_checks_locales():
     assert scores["tool_trajectory_match"] == 0
     assert scores["qa_quality_gate"] == 0
 
-    qa_run = {"outputs": {"stage": "qa", "stage_checks": {"no_tools_called": True, "rejected_contradictory_draft": True}}}
+    qa_run = {"outputs": {"stage": "qa", "tool_calls": [], "qa": {"veredicto": "rechazado"}}}
     qa = {e(qa_run, ref)["key"]: e(qa_run, ref)["score"] for e in CODE_EVALUATORS}
     assert qa["categoria_match"] is None and qa["qa_quality_gate"] == 1 and qa["tool_trajectory_match"] == 1
 
@@ -414,7 +412,7 @@ def test_scenario_checks_reject_inaccurate_rma_reply_and_low_qa():
     from src.pipeline.orchestrator import ToolCallTrace
     from src.pipeline.scenario_checks import check_scenario
 
-    scenario = load_eval_dataset(limit=1)[0]
+    scenario = load_eval_dataset()[0]
     calls = [ToolCallTrace(**entry) for entry in scenario["expected_tool_calls"]]
     calls[-1].result = {
         "pedido_id": "P9001", "sku": "SKU-002", "rma_id": "RMA-00001",
@@ -451,8 +449,7 @@ def test_pre_shipment_scenario_fails_if_rma_tool_is_invoked():
     assert not check_scenario(scenario["assertions"], calls=calls)["forbidden_tools"]
 
 
-def test_qa_only_scenario_has_same_checks_locally_and_in_langsmith():
-    from src.pipeline.evaluator import evaluate_qa_scenario
+def test_qa_only_target_uses_injected_agent_and_actual_usage():
     from src.pipeline.langsmith_eval import make_pipeline_target, qa_quality_gate, scenario_assertions
 
     scenario = next(row for row in load_eval_dataset() if row["id"] == "EVAL-020")
@@ -461,12 +458,12 @@ def test_qa_only_scenario_has_same_checks_locally_and_in_langsmith():
         veredicto="rechazado", respuesta_final="Needs review",
     )
     sistema = _sistema("consulta", qas=bad_rejection)
-    local = evaluate_qa_scenario(scenario, agent=sistema.qa)
     example = scenario_to_langsmith_example(scenario, "test-dataset")
     run = {"outputs": make_pipeline_target(sistema)(example["inputs"])}
-    assert not local.passed
-    assert run["outputs"]["stage_checks"] == local.checks
-    assert qa_quality_gate(run, example)["score"] == 0
+    assert sistema.qa.calls == 1 and sistema.triaje.calls == 0
+    assert run["outputs"]["cost_usd"] == 0.000325
+    assert run["outputs"]["ttft_seconds"] is None
+    assert qa_quality_gate(run, example)["score"] == 1
     assert scenario_assertions(run, example)["score"] == 0
 
 
