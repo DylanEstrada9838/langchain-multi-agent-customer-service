@@ -27,7 +27,7 @@ This document maps every requirement, agent capability, tool contract, and guard
 | **Agent 2a (`devoluciones`)**: Eligible return flow $\rightarrow$ RMA creation & SQLite persistence | Agents & Tools | `EVAL-001` (explicit `P9001`), `EVAL-007` (resolved via CRM `pedidos_recientes`), `EVAL-022` (defective item within 30d window) |
 | **Agent 2b (`soporte_tecnico`)**: KB troubleshooting + active service outage check | Agents & Tools | `EVAL-002` (KB match), `EVAL-003` (active outage `INC-001` + KB), `EVAL-008` (hardware/water damage escalation), `EVAL-018` (empty KB escalation) |
 | **Agent 2c (`consultas`)**: Shipping inquiries, policy questions & severe complaint de-escalation | Agents & Tools | `EVAL-004` (delayed order + `INC-002`), `EVAL-005` (return policy), `EVAL-006` (VIP severe complaint compensation), `EVAL-009` (secondary policy question) |
-| **Agent 3 (`qa`)**: 4-dimension rubric (`precision`, `politica`, `tono`, `completitud`), `expected_tool_calls: "none"`, rejection retry loop | QA & Guardrails | `EVAL-001`, `EVAL-006`, `EVAL-009`, `EVAL-020` (explicit QA `rechazado` + retry trigger + `"none"` tool calls) |
+| **Agent 3 (`qa`)**: 4-dimension rubric (`precision`, `politica`, `tono`, `completitud`), `expected_tool_calls: "none"`, rejection retry loop | QA & Guardrails | `EVAL-001`, `EVAL-006`, `EVAL-009`, `EVAL-020` (explicit QA `rechazado` and no tool calls; retry coverage lives in pipeline unit tests) |
 | **Tool `consultar_cliente`**: Profile, segment, `pedidos_recientes` list, and Not-Found (`error`) handling | Tool Invocation | `EVAL-001`..`006` (found), `EVAL-007` (`pedidos_recientes` resolution), `EVAL-010` (`C999` not found), `EVAL-023` (`C906` with empty `pedidos_recientes`) |
 | **Tool `consultar_pedido`**: Order details, Not-Found (`error`) handling, and `cliente_id` ownership verification | Tool Invocation & Security | `EVAL-001`, `EVAL-004` (owner match), `EVAL-010`/`016` (cross-customer ownership denied), `EVAL-017` (`P9999` not found) |
 | **Tool `verificar_devolucion`**: Window check (`30d` vs `60d` VIP), `devolvible=False`, `estado_envio != entregado` (`procesando` vs `retrasado`), SKU mismatch, and ownership check | Tool Invocation & Boundaries | `EVAL-001` (VIP 60d ok), `EVAL-011` (`retrasado` in-transit rule), `EVAL-012` (45d > 30d), `EVAL-013` (`devolvible=False`), `EVAL-019` (SKU mismatch), `EVAL-021` (`procesando` cancellation rule) |
@@ -42,7 +42,7 @@ This document maps every requirement, agent capability, tool contract, and guard
 
 ## Executable assertions and manual review
 
-Local and LangSmith runs apply the same deterministic scenario assertions. A passing
+LangSmith evaluates the deterministic scenario assertions. A passing
 automated check establishes the fields and reply patterns listed below. Review the
 numbered criteria still marked as manual when certifying a scenario. The numbers refer
 to the original 1-based order of `pass_fail_criteria` in the scenario.
@@ -63,7 +63,7 @@ to the original 1-based order of `pass_fail_criteria` in the scenario.
 | EVAL-012 | Ineligible and elapsed days versus policy window, no RMA call or RMA ID/URL in reply | 1, 4 |
 | EVAL-013 | Ineligible due to customization, no RMA call, customization marker | 1, 2 |
 | EVAL-014 | Standard tier, denied as out of window, no RMA call, forbidden coupon and RMA text | 3 (reply wording) |
-| EVAL-015 | No order or returns calls | 1, 2 |
+| EVAL-015 | Triage CRM lookup; no order or returns calls | 1, 2 |
 | EVAL-016 | Denial in order tool result | 2, 3 |
 | EVAL-017 | Missing order result, order ID in reply, forbidden tracking pattern | 2, 3 |
 | EVAL-018 | Empty KB result and specialist escalation flag | 2 |

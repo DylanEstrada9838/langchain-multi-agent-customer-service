@@ -75,7 +75,7 @@ Built [src/pipeline/quality_gate.py](src/pipeline/quality_gate.py) to programmat
 - **Tie-Breaker Target**: `first_pass_qa_approval_rate >= 80.0%`
 - **Baseline Regression Comparison**: Compares candidate runs against committed production baseline ([data/baseline_pipeline.json](data/baseline_pipeline.json)), flagging any statistical regressions in accuracy, trajectory recall, or policy adherence.
 - **CLI Commands**:
-  - Run with gate enforcement: `python main.py --eval --fail-on-gate`
+  - Run with gate enforcement: `python main.py --eval --fail-on-gate` (LangSmith)
   - Promote new baseline: `python main.py --eval --update-baseline`
 
 ### 3.3 Financial Cost & TTFT Latency Telemetry
@@ -119,7 +119,7 @@ sequenceDiagram
 ### 4.3 CI Guarantees (.github/workflows/eval-gate.yml)
 1. **Zero LLM Token Spend in CI**: Uses no external API keys or cloud tokens.
 2. **Fast Execution**: Completes in ~15-20 seconds.
-3. **Artifact Integrity Verification**: Validates that `data/latest_eval_report.json` was generated with the exact agent versions specified in `src/agents/active_versions.yaml` and that `verdict == "APPROVED"`.
+3. **Artifact Integrity Verification**: Validates the active agent versions, full scenario coverage, runtime and benchmark fingerprints, and a passing gate. It also checks that the Markdown matches the JSON report.
 4. **Transparent Sticky PR Comment**: Automatically renders `data/latest_eval_report.md` as a formatted GitHub PR comment, presenting all metrics and Quality Gate checks to reviewers.
 
 ---
@@ -128,7 +128,7 @@ sequenceDiagram
 
 The benchmark now enforces scenario-specific tool calls, tool results, selected reply details, and QA thresholds. The [coverage matrix](data/eval_coverage.md#executable-assertions-and-manual-review) identifies criteria that still require manual review.
 
-Local and LangSmith CLI evaluations seed a fresh SQLite database with a fixed reference date. This keeps return-window fixtures stable across runs. Knowledge-base searches also require an exact match for reported hyphenated error codes, which changes the evidence available to every prompt version.
+LangSmith CLI evaluations seed a fresh SQLite database with a fixed reference date. This keeps return-window fixtures stable across runs. Knowledge-base searches also require an exact match for reported hyphenated error codes, which changes the evidence available to every prompt version.
 
 When the evaluation method changes, start the candidate run with a fresh baseline path. Archive the resulting JSON under [data/baselines](data/baselines) and index it in the [baseline history](AGENT_IMPROVEMENTS_HISTORY.md#4-baseline-history). Update the [active baseline](data/baseline_pipeline.json) when the candidate is promoted.
 
@@ -137,9 +137,9 @@ When the evaluation method changes, start the candidate run with a fresh baselin
 | Task | Command | Artifacts Produced / Checked |
 |:---|:---|:---|
 | Run unit & integration test suite | `pytest tests -q` | 37 tests passing in ~6s |
-| Run local 23-scenario evaluation | `python main.py --eval --fail-on-gate` | `data/latest_eval_report.md`, `data/latest_eval_report.json` |
-| Test candidate agent version | `python main.py --eval --agent-versions <agent>=<ver>` | Candidate evaluation output |
+| Run the full LangSmith evaluation | `python main.py --eval --fail-on-gate` | `data/latest_eval_report.md`, `data/latest_eval_report.json` |
+| Test candidate agent version | `python main.py --eval --versions "<agent>:<ver>"` | Candidate evaluation output |
 | Promote candidate as production baseline | `python main.py --eval --update-baseline` | `data/baseline_pipeline.json` |
 | Synchronize LangSmith dataset | `python main.py --sync-dataset` | Updated LangSmith cloud benchmark |
-| Run cloud experiment via LangSmith | `python main.py --eval --langsmith` | LangSmith run traces & feedback |
+| Run a smoke test | `python main.py --eval --limit 3` | Filtered LangSmith results and reports under `outputs/` |
 | Decoupled GitHub Actions validation | Auto on PR / push to main | Sticky PR comment with metrics summary |
