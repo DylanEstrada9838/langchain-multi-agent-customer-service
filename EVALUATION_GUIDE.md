@@ -1,6 +1,6 @@
 # Execution & Evaluation Guide
 
-This guide covers running the multi-agent customer support system from the CLI ([main.py](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/main.py)), testing candidate agent versions, enforcing the **Quality Gate** locally against the golden dataset ([data/eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl)), and deploying changes through automated Pull Requests.
+This guide covers running the multi-agent customer support system from the CLI ([main.py](main.py)), testing candidate agent versions, enforcing the **Quality Gate** locally against the golden dataset ([data/eval_dataset.jsonl](data/eval_dataset.jsonl)), and deploying changes through automated Pull Requests.
 
 ---
 
@@ -20,7 +20,7 @@ This guide covers running the multi-agent customer support system from the CLI (
    LANGSMITH_DATASET_NAME=techstore-support-golden-v1
    ```
 2. **Database Initialization**: The SQLite database (`data/soporte.db`) is automatically created and seeded on first run with synthetic Faker records and deterministic test cases (`C900`–`C906`, `P9001`–`P9008`).
-3. **Active Agent Versions**: Production versions are managed in [src/agents/active_versions.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/active_versions.yaml) (not in `.env`). Declarative YAML specs live under `src/agents/specs/<agent>/<version>.yaml`. Both the CLI and CI use this file as the single source of truth unless overridden with `--version` or `--versions`.
+3. **Active Agent Versions**: Production versions are managed in [src/agents/active_versions.yaml](src/agents/active_versions.yaml) (not in `.env`). Declarative YAML specs live under `src/agents/specs/<agent>/<version>.yaml`. Both the CLI and CI use this file as the single source of truth unless overridden with `--version` or `--versions`.
 
 ---
 
@@ -47,7 +47,7 @@ This guide covers running the multi-agent customer support system from the CLI (
 
 ## 3. Running Automated Evaluations (`--eval`)
 
-All evaluations run against the 23 golden scenarios in [data/eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl) (mapped in [data/eval_coverage.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_coverage.md)).
+All evaluations run against the 23 golden scenarios in [data/eval_dataset.jsonl](data/eval_dataset.jsonl) (mapped in [data/eval_coverage.md](data/eval_coverage.md)).
 
 ### 3.1 Evaluate a Single Agent in Isolation (`triaje`)
 Evaluates only the Triage agent without calling specialists or QA—ideal for fast, low-cost prompt iterations:
@@ -117,11 +117,11 @@ Idempotently updates all 23 scenarios into LangSmith Datasets using deterministi
      .venv\Scripts\python main.py --eval --langsmith --versions "<agent>:v4" --update-baseline
      ```
 3. **Promote the Version**:
-   - Update [src/agents/active_versions.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/active_versions.yaml) to point to `v4`.
+   - Update [src/agents/active_versions.yaml](src/agents/active_versions.yaml) to point to `v4`.
 4. **Open Pull Request**:
    - Commit the spec, `active_versions.yaml`, and the auto-generated `data/latest_eval_report.*` (and `data/baseline_pipeline.json` if updated).
    - Push your branch and open a PR.
-5. **Zero-LLM CI Verification ([.github/workflows/eval-gate.yml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/.github/workflows/eval-gate.yml))**:
+5. **Zero-LLM CI Verification ([.github/workflows/eval-gate.yml](.github/workflows/eval-gate.yml))**:
    - GitHub Actions runs in ~15 seconds at **$0 cost** (no LLM calls in CI):
      - Executes unit tests (`pytest`).
      - Validates that `data/latest_eval_report.json` matches `active_versions.yaml` and that the Quality Gate passed.
@@ -151,13 +151,13 @@ The system grades versions against a **3-tier decision hierarchy** rather than t
 | **3. Tie-Breaker** | `first_pass_qa_approval_rate`| **`>= 80.0%`** | % of tickets approved by QA on the first try without retries. |
 
 ### 5.3 Cost & Performance Metrics (Informative Tracking)
-These metrics are compared against [data/baseline_pipeline.json](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/baseline_pipeline.json) showing percentage delta ($\Delta \%$), but do not block the gate:
+These metrics are compared against [data/baseline_pipeline.json](data/baseline_pipeline.json) showing percentage delta ($\Delta \%$), but do not block the gate:
 * **`avg_cost_usd`**: Financial cost per ticket calculated from model input/output token pricing.
 * **`avg_tokens`**: Average total tokens consumed per ticket.
 * **`avg_latency_seconds`**: End-to-end elapsed time per ticket.
 * **`avg_ttft_seconds`**: Pre-streaming baseline measuring elapsed time until the user sees the first token.
 
-*(For detailed historical results across `v1` $\rightarrow$ `v2` $\rightarrow$ `v3`, see [AGENT_IMPROVEMENTS_HISTORY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/AGENT_IMPROVEMENTS_HISTORY.md), [INFRASTRUCTURE_IMPROVEMENTS_HISTORY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/INFRASTRUCTURE_IMPROVEMENTS_HISTORY.md), and [docs/eval_history/](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/docs/eval_history/)).*
+*(For detailed historical results across `v1` $\rightarrow$ `v2` $\rightarrow$ `v3`, see [AGENT_IMPROVEMENTS_HISTORY.md](AGENT_IMPROVEMENTS_HISTORY.md), [INFRASTRUCTURE_IMPROVEMENTS_HISTORY.md](INFRASTRUCTURE_IMPROVEMENTS_HISTORY.md), and [docs/eval_history/](docs/eval_history/)).*
 
 ---
 

@@ -6,7 +6,7 @@ This document details the evolutionary journey, prompt engineering refinements, 
 
 ## 1. Executive Summary & Evolution Overview
 
-The multi-agent customer support system was iteratively evaluated against a benchmark dataset of 23 representative scenarios ([data/eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl)), testing routing accuracy, tool trajectory recall, human escalation calibration, policy compliance, and adversarial resilience.
+The multi-agent customer support system was iteratively evaluated against a benchmark dataset of 23 representative scenarios ([data/eval_dataset.jsonl](data/eval_dataset.jsonl)), testing routing accuracy, tool trajectory recall, human escalation calibration, policy compliance, and adversarial resilience.
 
 ```
        v1 (Baseline PoC)               v2 (Structured Guidance)              v3 (Production Approved)
@@ -72,7 +72,7 @@ Responsible for classification, intent extraction, sentiment analysis, and routi
   - Reinforced CRM lookups (`pedidos_recientes`) to correlate ticket context with customer history.
 - **`v3` Production Baseline**:
   - Achieved **`100.00%`** category classification accuracy across all 23 evaluation scenarios.
-  - Decoupled into [src/agents/specs/triaje/v3.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/specs/triaje/v3.yaml).
+  - Decoupled into [src/agents/specs/triaje/v3.yaml](src/agents/specs/triaje/v3.yaml).
 
 ---
 
@@ -89,7 +89,7 @@ Handles return eligibility verification, warranty lookups, and prepaid return la
 - **`v3` Production Baseline**:
   - Flawless tool sequence execution: achieved **`100.00%`** `tool_trajectory_recall`.
   - Proper explanation of ineligible returns (e.g., expired 30-day window) citing policy without attempting unauthorized label creation.
-  - Decoupled into [src/agents/specs/devoluciones/v3.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/specs/devoluciones/v3.yaml).
+  - Decoupled into [src/agents/specs/devoluciones/v3.yaml](src/agents/specs/devoluciones/v3.yaml).
 
 ---
 
@@ -104,7 +104,7 @@ Addresses shipping tracking, order status, carrier logistics, and general store 
 - **`v3` Production Baseline**:
   - Handles edge cases cleanly: when an order does not exist in the ERP, provides immediate clarification without triggering spurious carrier searches.
   - Achieved `100.00%` trajectory recall and `5.00/5.00` policy adherence.
-  - Decoupled into [src/agents/specs/consultas/v3.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/specs/consultas/v3.yaml).
+  - Decoupled into [src/agents/specs/consultas/v3.yaml](src/agents/specs/consultas/v3.yaml).
 
 ---
 
@@ -118,7 +118,7 @@ Provides device diagnostics, knowledge base (KB) troubleshooting steps, and warr
   - Added structured diagnostic protocols requiring model identification and error code matching before prescribing repairs.
 - **`v3` Production Baseline**:
   - Strong diagnostic workflows for catalogued device errors (audio, smartphones, connectivity).
-  - Decoupled into [src/agents/specs/soporte_tecnico/v3.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/specs/soporte_tecnico/v3.yaml).
+  - Decoupled into [src/agents/specs/soporte_tecnico/v3.yaml](src/agents/specs/soporte_tecnico/v3.yaml).
 - **Known Remaining Edge Case (`EVAL-018`)**:
   - When querying uncatalogued home automation error codes (e.g., `"error E-404"` on smart bulb), broad KB search retrieves articles for smart cameras/thermostats, causing the agent to attempt generic advice instead of immediate escalation. (See Section 4 for the v4 fix).
 
@@ -139,7 +139,7 @@ Acts as the final safeguard before any customer message is dispatched, auditing 
   - **Calibrated QA Grounding**: Taught QA that legitimate denials (`elegible: false`) and non-existent orders are fully valid business conclusions requiring `5/5` policy score and no label creation.
   - Achieved **`100.00%` first-pass QA approval rate** on end-to-end scenarios, eliminating retry latency.
   - Mean policy compliance reached a perfect **`5.00 / 5.00`**.
-  - Decoupled into [src/agents/specs/qa/v3.yaml](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/agents/specs/qa/v3.yaml).
+  - Decoupled into [src/agents/specs/qa/v3.yaml](src/agents/specs/qa/v3.yaml).
 
 ---
 
@@ -147,9 +147,9 @@ Acts as the final safeguard before any customer message is dispatched, auditing 
 
 Detailed post-mortem and forensic analysis for each generation can be consulted in the evaluation history archive:
 
-- [docs/eval_history/v1_FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/docs/eval_history/v1_FLAWS_SUMMARY.md): Comprehensive review of v1 failures (passive QA, missing tool calls, prompt injection susceptibility).
-- [docs/eval_history/v2_FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/docs/eval_history/v2_FLAWS_SUMMARY.md): Analysis of v2 improvements and the QA over-rejection boundary dilemma.
-- [docs/eval_history/v3_FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/docs/eval_history/v3_FLAWS_SUMMARY.md): Final certification report detailing the calibration that achieved the Approved Production Baseline.
+- [docs/eval_history/v1_FLAWS_SUMMARY.md](docs/eval_history/v1_FLAWS_SUMMARY.md): Comprehensive review of v1 failures (passive QA, missing tool calls, prompt injection susceptibility).
+- [docs/eval_history/v2_FLAWS_SUMMARY.md](docs/eval_history/v2_FLAWS_SUMMARY.md): Analysis of v2 improvements and the QA over-rejection boundary dilemma.
+- [docs/eval_history/v3_FLAWS_SUMMARY.md](docs/eval_history/v3_FLAWS_SUMMARY.md): Final certification report detailing the calibration that achieved the Approved Production Baseline.
 
 ---
 

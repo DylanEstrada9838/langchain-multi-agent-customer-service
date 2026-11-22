@@ -1,6 +1,6 @@
 # Evaluation Dataset Coverage Matrix
 
-This document maps every requirement, agent capability, tool contract, and guardrail from [SPECIFICATIONS.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/SPECIFICATIONS.md) to the corresponding test scenarios in [eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl) (`EVAL-001` through `EVAL-023`).
+This document maps every requirement, agent capability, tool contract, and guardrail from [SPECIFICATIONS.md](../SPECIFICATIONS.md) to the corresponding test scenarios in [eval_dataset.jsonl](eval_dataset.jsonl) (`EVAL-001` through `EVAL-023`).
 
 ---
 
@@ -18,7 +18,7 @@ This document maps every requirement, agent capability, tool contract, and guard
 
 ## 2. PRD Requirements & Capabilities Coverage Matrix
 
-| PRD Item / Requirement ([SPECIFICATIONS.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/SPECIFICATIONS.md)) | Category | Covered by Scenario ID(s) |
+| PRD Item / Requirement ([SPECIFICATIONS.md](../SPECIFICATIONS.md)) | Category | Covered by Scenario ID(s) |
 |---|---|---|
 | **Agent 1 (`triaje`)**: CRM segment lookup & intent classification (`devolucion`, `soporte_tecnico`, `consulta`, `queja_grave`) | Agents & Routing | `EVAL-001`..`EVAL-019`, `EVAL-021`..`EVAL-023` (all 22 end-to-end scenarios) |
 | **Agent 1 (`triaje`)**: Priority assignment (`urgente` for VIP `queja_grave`, `alta`, `media`, `baja`) | Agents & Routing | `EVAL-005`/`015` (`baja`), `EVAL-001`/`004`/`021`/`022` (`media`), `EVAL-003`/`008`/`018` (`alta`), `EVAL-006` (`urgente`) |

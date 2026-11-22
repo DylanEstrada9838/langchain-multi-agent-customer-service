@@ -133,13 +133,13 @@ Every specialist draft is graded from `1` to `5` on four criteria before the res
 
 ### 3.2 Offline Benchmark Quality Targets & Production Baseline (`v3`)
 
-Offline evaluations against the 23-scenario golden dataset ([data/eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl), mapped in [data/eval_coverage.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_coverage.md)) are gated by our **Core Quality Targets** (execution instructions in [EVALUATION_GUIDE.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/EVALUATION_GUIDE.md)):
+Offline evaluations against the 23-scenario golden dataset ([data/eval_dataset.jsonl](data/eval_dataset.jsonl), mapped in [data/eval_coverage.md](data/eval_coverage.md)) are gated by our **Core Quality Targets** (execution instructions in [EVALUATION_GUIDE.md](EVALUATION_GUIDE.md)):
 1. **Hard Gates (Safety & Policy)**: `escalation_accuracy >= 95.0%` and `mean_qa_politica >= 4.50 / 5.00` (with `tool_call_accuracy = 100.0%` for Triage CRM lookups).
 2. **Primary Winner Metric**: `pass_rate >= 85.0%` (percentage of scenarios passing category, routing, tool trajectory, escalation, and QA together).
 3. **Tie-Breaker**: `first_pass_qa_approval_rate >= 80.0%` (approved by QA on attempt 1 without retry).
 
 #### Verified Production Baseline (`v3` on `gpt-4o-mini`)
-Following iterative evaluation (`v1` $\rightarrow$ `v2` $\rightarrow$ `v3`, detailed in [docs/eval_history/v3_FLAWS_SUMMARY.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/docs/eval_history/v3_FLAWS_SUMMARY.md)), **`v3`** is our approved production baseline:
+Following iterative evaluation (`v1` $\rightarrow$ `v2` $\rightarrow$ `v3`, detailed in [docs/eval_history/v3_FLAWS_SUMMARY.md](docs/eval_history/v3_FLAWS_SUMMARY.md)), **`v3`** is our approved production baseline:
 - **Quality**: The pipeline achieves a **95.65% end-to-end pass rate** (22/23 scenarios), with **100% routing and tool-call accuracy**, a **100% first-pass QA approval rate**, and a **5.00 / 5.00 mean QA score** across accuracy, policy, tone, and completeness.
 - **Cost**: Each ticket consumes an average of **8,585 total tokens** across the 3-stage pipeline (Triage $\rightarrow$ Specialist $\rightarrow$ QA), representing roughly **\$0.002–\$0.003 per resolved ticket** on `gpt-4o-mini` with zero wasted QA retry loops.
 - **Performance**: End-to-end resolution averages **10.54 seconds per ticket** across all 3 sequential agent invocations and SQLite tool queries.

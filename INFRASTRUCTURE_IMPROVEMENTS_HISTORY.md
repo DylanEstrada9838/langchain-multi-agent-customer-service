@@ -23,12 +23,12 @@ To move beyond manual spot-checking, the testing framework was transformed from 
 ## 2. Infrastructure & Tooling Milestones
 
 ### 2.1 Live Telemetry & Progress Logging
-- **Flushed Output Execution**: Enhanced [src/pipeline/evaluator.py](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/pipeline/evaluator.py) with explicit `flush=True` on every step output. This eliminated terminal deadlocks on Windows PowerShell (such as QuickEdit selection pausing).
+- **Flushed Output Execution**: Enhanced [src/pipeline/evaluator.py](src/pipeline/evaluator.py) with explicit `flush=True` on every step output. This eliminated terminal deadlocks on Windows PowerShell (such as QuickEdit selection pausing).
 - **Per-Agent Step Metrics**: Implemented `AgentStepMetrics` to capture input tokens, output tokens, tool call duration, and step elapsed time at each stage of the multi-agent orchestration.
 
 ### 2.2 LangSmith Dataset Synchronization
-- **Deterministic Example UUIDs**: Built [src/pipeline/langsmith_eval.py](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/pipeline/langsmith_eval.py) using UUIDv5 hashed from scenario IDs (e.g., `EVAL-001`). Syncing with `python main.py --sync-dataset` is fully idempotent—updating existing test examples without creating orphaned duplicates.
-- **Dataset Versioning**: Managed the 23-scenario evaluation benchmark ([data/eval_dataset.jsonl](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_dataset.jsonl)) with automated coverage documentation ([data/eval_coverage.md](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/eval_coverage.md)).
+- **Deterministic Example UUIDs**: Built [src/pipeline/langsmith_eval.py](src/pipeline/langsmith_eval.py) using UUIDv5 hashed from scenario IDs (e.g., `EVAL-001`). Syncing with `python main.py --sync-dataset` is fully idempotent—updating existing test examples without creating orphaned duplicates.
+- **Dataset Versioning**: Managed the 23-scenario evaluation benchmark ([data/eval_dataset.jsonl](data/eval_dataset.jsonl)) with automated coverage documentation ([data/eval_coverage.md](data/eval_coverage.md)).
 
 ### 2.3 Deterministic Code Evaluators
 Rather than relying on non-deterministic LLM-as-a-Judge for standard functional checks, 5 client-side Python evaluators were built for fast, zero-token evaluation:
@@ -67,19 +67,19 @@ Rather than relying on non-deterministic LLM-as-a-Judge for standard functional 
 - **Dynamic Resolution**: Updated `src/agents/registry.py` and `src/pipeline/orchestrator.py` to support explicit per-agent version overrides (e.g., `--agent-versions devoluciones=v4,qa=v3`).
 
 ### 3.2 Automated Quality Gate & Regression Guard
-Built [src/pipeline/quality_gate.py](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/pipeline/quality_gate.py) to programmatically enforce quality thresholds before any model or prompt change can merge:
+Built [src/pipeline/quality_gate.py](src/pipeline/quality_gate.py) to programmatically enforce quality thresholds before any model or prompt change can merge:
 - **Hard Gate Checks**:
   - `escalation_accuracy >= 95.0%`
   - `mean_qa_politica >= 4.50 / 5.0`
 - **Primary Winner Target**: `pass_rate >= 85.0%`
 - **Tie-Breaker Target**: `first_pass_qa_approval_rate >= 80.0%`
-- **Baseline Regression Comparison**: Compares candidate runs against committed production baseline ([data/baseline_pipeline.json](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/data/baseline_pipeline.json)), flagging any statistical regressions in accuracy, trajectory recall, or policy adherence.
+- **Baseline Regression Comparison**: Compares candidate runs against committed production baseline ([data/baseline_pipeline.json](data/baseline_pipeline.json)), flagging any statistical regressions in accuracy, trajectory recall, or policy adherence.
 - **CLI Commands**:
   - Run with gate enforcement: `python main.py --eval --fail-on-gate`
   - Promote new baseline: `python main.py --eval --update-baseline`
 
 ### 3.3 Financial Cost & TTFT Latency Telemetry
-- **Model Pricing Engine**: Created [src/llm/pricing.py](file:///c:/Users/dylan/Documents/Python/langchain-multiagent/src/llm/pricing.py) computing real-time dollar cost per ticket across prompt and completion tokens (e.g., `gemini-1.5-flash`: \$0.075 / 1M prompt, \$0.30 / 1M completion).
+- **Model Pricing Engine**: Created [src/llm/pricing.py](src/llm/pricing.py) computing real-time dollar cost per ticket across prompt and completion tokens (e.g., `gemini-1.5-flash`: \$0.075 / 1M prompt, \$0.30 / 1M completion).
 - **Time to First Token (TTFT)**: Instrumented `avg_ttft_seconds` measuring pre-streaming elapsed latency until model output begins.
 - **Reporting Integration**: Wired `avg_cost_usd` and `avg_ttft_seconds` directly into `SUMMARY_METRICS`, `COST_METRICS`, CLI logs, and `GateReport`.
 
