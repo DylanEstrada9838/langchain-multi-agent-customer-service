@@ -153,9 +153,24 @@ Detailed post-mortem and forensic analysis for each generation can be consulted 
 
 ---
 
-## 4. Pending Horizons & Future Roadmap (`v4`)
+## 4. Baseline history
+
+| Status | Agent versions | Full-suite result | Evidence |
+|---|---|---|---|
+| Current approved baseline | All five agents on `v3` | 22/23 (95.65%) | [JSON snapshot](data/baselines/001-v3-original-checks.json) · [LangSmith run](https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/b97bf224-299f-4d83-92e5-1a0baa098a69) |
+| Candidate passed the absolute gate | `triaje`, `devoluciones`, `soporte_tecnico`, and `consultas` on `v4`; `qa` on `v3` | 21/23 (91.30%). Remaining failures are `EVAL-004` and `EVAL-015`. | [Candidate JSON snapshot](data/baselines/002-v4-scenario-assertions-candidate.json) · [LangSmith run](https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/381a6b5c-8c45-4fa4-9755-bc68fcf81100) |
+
+The two results used different checks and fixture dates. To measure the effect of prompt updates alone, evaluate both version sets with the same dataset, assertions, fixture date, and code revision. See [evaluation comparability](INFRASTRUCTURE_IMPROVEMENTS_HISTORY.md#evaluation-comparability).
+
+### v4 prompt changes
+
+- Triage assigns urgent priority to severe complaints that combine an explicit account-cancellation threat with a demand for immediate action. It leaves order and SKU fields empty for requests unrelated to store orders or products.
+- Inquiries names the return exclusions, includes verified shipping details, and skips order lookups for entirely out-of-scope requests.
+- Returns identifies the verified items in the order when the requested SKU is absent and asks the customer to confirm the intended item or order.
+- Technical support checks whether the device, symptoms, error code, and affected service match the evidence. It escalates when no relevant guidance applies.
+
+## 5. Future roadmap
 
 | Scenario | Component | Current Behavior | Recommended Fix for `v4` |
 |:---|:---|:---|:---|
-| **`EVAL-018`** | `soporte_tecnico` | Queries KB with query `"error E-404..."` and category `"domotica"`. Returns articles for unrelated devices (smart cameras / thermostats) due to broad keyword matching, preventing mandatory escalation for uncatalogued hardware errors. | Add semantic relevance check: if returned KB articles do not match the customer's specific product or exact error code, treat as empty results (`"resultados": []`) and set `requiere_escalado=True`. |
 | **Edge Returns** | `devoluciones` | Return request for damaged in-transit goods currently routes through standard 30-day window check. | Add expedited RMA path for carrier-damaged deliveries (`tipo: "dano_transporte"`) bypassing standard customer-remorse evaluation. |

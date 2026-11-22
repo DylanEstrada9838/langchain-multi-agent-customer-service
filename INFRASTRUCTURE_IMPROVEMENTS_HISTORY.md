@@ -124,6 +124,14 @@ sequenceDiagram
 
 ---
 
+### Evaluation comparability
+
+The benchmark now enforces scenario-specific tool calls, tool results, selected reply details, and QA thresholds. The [coverage matrix](data/eval_coverage.md#executable-assertions-and-manual-review) identifies criteria that still require manual review.
+
+Local and LangSmith CLI evaluations seed a fresh SQLite database with a fixed reference date. This keeps return-window fixtures stable across runs. Knowledge-base searches also require an exact match for reported hyphenated error codes, which changes the evidence available to every prompt version.
+
+When the evaluation method changes, start the candidate run with a fresh baseline path. Archive the resulting JSON under [data/baselines](data/baselines) and index it in the [baseline history](AGENT_IMPROVEMENTS_HISTORY.md#4-baseline-history). Update the [active baseline](data/baseline_pipeline.json) when the candidate is promoted.
+
 ## 5. Summary of Automated CLI Workflows
 
 | Task | Command | Artifacts Produced / Checked |
