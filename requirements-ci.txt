@@ -1,4 +1,4 @@
-# Dependencias mínimas para ejecutar el pipeline y el eval-gate en CI (sin jupyter/pandas).
+# Dependencias para ejecutar las pruebas y validar el informe de evaluación en CI.
 langchain>=1.0.0
 langchain-core>=1.0.0
 langchain-openai>=1.0.0

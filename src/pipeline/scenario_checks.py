@@ -31,13 +31,12 @@ class ScenarioChecks(BaseModel):
     manual_criteria: list[int] = Field(default_factory=list)
 
 
-def check_tools(expected, actual, *, agent_filter=None, ordered=False) -> tuple[bool, float]:
-    calls = [call for call in actual if agent_filter is None or call.agent == agent_filter]
+def check_tools(expected, actual, *, ordered=False) -> tuple[bool, float]:
+    remaining = list(actual)
     if expected == "none":
-        return not calls, float(not calls)
+        return not remaining, float(not remaining)
 
-    required = [call for call in expected if agent_filter is None or call["agent"] == agent_filter]
-    remaining = list(calls)
+    required = list(expected)
     matched = 0
     for requirement in required:
         for index, call in enumerate(remaining):

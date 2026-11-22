@@ -13,13 +13,8 @@ PyYAML>=6.0.1
 Faker>=30.0.0
 SQLAlchemy>=2.0.30
 
-# --- Notebook ---
-jupyter>=1.1.0
-ipykernel>=6.29
-
 # --- Utilidades de presentación ---
-rich>=13.7                  # salida bonita en consola/notebook
-pandas>=2.2                 # tablas de resultados de QA
+rich>=13.7
 
 # --- Observabilidad (opcional) ---
 langsmith>=0.2.0
