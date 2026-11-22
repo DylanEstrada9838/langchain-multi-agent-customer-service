@@ -48,7 +48,7 @@ flowchart LR
     S --> QA
     C --> QA
     QA -->|Approved / Rewritten| OUT["Final Response to Customer"]
-    QA -->|Rejected (Retry Available)| RETRY["Specialist Re-Investigation<br/>with QA Feedback"]
+    QA -->|"Rejected (Retry Available)"| RETRY["Specialist Re-Investigation<br/>with QA Feedback"]
     RETRY --> QA
     QA -->|Rejected after Retries<br/>or Escalation Flagged| HUM["🚨 Escalate to Human Agent"]
 ```

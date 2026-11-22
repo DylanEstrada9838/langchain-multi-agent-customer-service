@@ -57,7 +57,7 @@ flowchart TD
     Retry -->|Sí| Devoluciones
     Retry -->|Sí| Soporte
     Retry -->|Sí| Consultas
-    Retry -->|No (Excedido)| Humano
+    Retry -->|"No (Excedido)"| Humano
 ```
 
 ### 2.1 Agente de Triaje (`triaje`)
