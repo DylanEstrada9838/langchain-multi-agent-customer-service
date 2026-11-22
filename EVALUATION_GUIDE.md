@@ -1,6 +1,6 @@
 # Execution & Evaluation Guide
 
-This guide covers running the multi-agent customer support system from the CLI ([main.py](main.py)), testing candidate agent versions, enforcing the **Quality Gate** locally against the golden dataset ([data/eval_dataset.jsonl](data/eval_dataset.jsonl)), and deploying changes through automated Pull Requests.
+This guide covers running the multi-agent customer support system from the CLI ([main.py](main.py)), testing candidate agent versions, enforcing the **Quality Gate** through LangSmith against the golden dataset ([data/eval_dataset.jsonl](data/eval_dataset.jsonl)), and deploying changes through automated Pull Requests.
 
 ---
 
@@ -12,7 +12,7 @@ This guide covers running the multi-agent customer support system from the CLI (
    OPENAI_API_KEY=sk-...
    OPENAI_MODEL=gpt-4o-mini
 
-   # Optional: LangSmith Tracing & Dataset Observability
+   # LangSmith tracing is optional. Evaluation and sync require LangSmith credentials.
    LANGSMITH_TRACING=true
    LANGSMITH_API_KEY=lsv2_pt_...
    LANGSMITH_PROJECT=soporte-multiagente
@@ -20,7 +20,7 @@ This guide covers running the multi-agent customer support system from the CLI (
    LANGSMITH_DATASET_NAME=techstore-support-golden-v1
    ```
 2. **Database Initialization**: The SQLite database (`data/soporte.db`) is automatically created and seeded on first run with synthetic Faker records and deterministic test cases (`C900`–`C906`, `P9001`–`P9008`).
-3. **Active Agent Versions**: Production versions are managed in [src/agents/active_versions.yaml](src/agents/active_versions.yaml) (not in `.env`). Declarative YAML specs live under `src/agents/specs/<agent>/<version>.yaml`. Both the CLI and CI use this file as the single source of truth unless overridden with `--version` or `--versions`.
+3. **Active Agent Versions**: Production versions are managed in [src/agents/active_versions.yaml](src/agents/active_versions.yaml) (not in `.env`). Declarative YAML specs live under `src/agents/specs/<agent>/<version>.yaml`. The CLI uses this map by default and accepts candidate overrides with `--version` or `--versions`. CI requires the full report to match the active map. See the [baseline history](AGENT_IMPROVEMENTS_HISTORY.md#4-baseline-history) for the approved version mix.
 
 ---
 
@@ -88,7 +88,7 @@ $baseline = ".\outputs\baseline-$(Get-Date -Format yyyyMMdd-HHmmss).json"
 1. Create or update the candidate spec and run the full LangSmith benchmark with its version override.
 2. Review the per-scenario failures and manual criteria in the report. Compare only runs with compatible benchmark fingerprints.
 3. Update [active_versions.yaml](src/agents/active_versions.yaml) when promoting the candidate. Archive the candidate baseline under [data/baselines](data/baselines), index it in the [agent history](AGENT_IMPROVEMENTS_HISTORY.md#4-baseline-history), and update the active baseline if approved.
-4. Commit both reports with the evaluated source. The [CI workflow](.github/workflows/eval-gate.yml) runs unit tests, verifies full scenario coverage, active versions, runtime and benchmark fingerprints, and checks that Markdown matches the JSON report.
+4. Commit the active version map, baseline, archived snapshot, and both reports with the evaluated source. The [CI workflow](.github/workflows/eval-gate.yml) runs unit tests, verifies full scenario coverage, active versions, runtime and benchmark fingerprints, and checks that Markdown matches the JSON report.
 
 ---
 

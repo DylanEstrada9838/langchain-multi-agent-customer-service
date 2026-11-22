@@ -64,7 +64,7 @@ Rather than relying on non-deterministic LLM-as-a-Judge for standard functional 
   └── qa/
       ├── v1.yaml, v2.yaml, v3.yaml
   ```
-- **Dynamic Resolution**: Updated `src/agents/registry.py` and `src/pipeline/orchestrator.py` to support explicit per-agent version overrides (e.g., `--agent-versions devoluciones=v4,qa=v3`).
+- **Dynamic Resolution**: Updated `src/agents/registry.py` and `src/pipeline/orchestrator.py` to support explicit per-agent version overrides (e.g., `--versions "devoluciones:v4,qa:v3"`).
 
 ### 3.2 Automated Quality Gate & Regression Guard
 Built [src/pipeline/quality_gate.py](src/pipeline/quality_gate.py) to programmatically enforce quality thresholds before any model or prompt change can merge:
@@ -73,7 +73,7 @@ Built [src/pipeline/quality_gate.py](src/pipeline/quality_gate.py) to programmat
   - `mean_qa_politica >= 4.50 / 5.0`
 - **Primary Winner Target**: `pass_rate >= 85.0%`
 - **Tie-Breaker Target**: `first_pass_qa_approval_rate >= 80.0%`
-- **Baseline Regression Comparison**: Compares candidate runs against committed production baseline ([data/baseline_pipeline.json](data/baseline_pipeline.json)), flagging any statistical regressions in accuracy, trajectory recall, or policy adherence.
+- **Baseline Regression Comparison**: Compares candidate runs against committed production baseline ([data/baseline_pipeline.json](data/baseline_pipeline.json)), applying the configured regression tolerances to comparable benchmarks.
 - **CLI Commands**:
   - Run with gate enforcement: `python main.py --eval --fail-on-gate` (LangSmith)
   - Promote new baseline: `python main.py --eval --update-baseline`
@@ -139,7 +139,7 @@ When the evaluation method changes, start the candidate run with a fresh baselin
 | Run unit & integration test suite | `pytest tests -q` | 37 tests passing in ~6s |
 | Run the full LangSmith evaluation | `python main.py --eval --fail-on-gate` | `data/latest_eval_report.md`, `data/latest_eval_report.json` |
 | Test candidate agent version | `python main.py --eval --versions "<agent>:<ver>"` | Candidate evaluation output |
-| Promote candidate as production baseline | `python main.py --eval --update-baseline` | `data/baseline_pipeline.json` |
+| Save passing candidate metrics | `python main.py --eval --baseline outputs/candidate.json --update-baseline` | Candidate snapshot for review and promotion |
 | Synchronize LangSmith dataset | `python main.py --sync-dataset` | Updated LangSmith cloud benchmark |
 | Run a smoke test | `python main.py --eval --limit 3` | Filtered LangSmith results and reports under `outputs/` |
 | Decoupled GitHub Actions validation | Auto on PR / push to main | Sticky PR comment with metrics summary |

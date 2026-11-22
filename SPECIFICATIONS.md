@@ -131,16 +131,17 @@ Every specialist draft is graded from `1` to `5` on four criteria before the res
 | **3. Tono (Segment Tone)** | Tone matches the customer's CRM tier (`VIP`: formal *usted*, loyalty acknowledgment, priority treatment; `Premium`: warm & professional; `Estándar`: clear & polite). | $\ge 4$ | If tone is inappropriate for the segment (e.g., casual tone with an angry VIP) $\rightarrow$ **`reescrito`** by QA. |
 | **4. Completitud (Completeness)** | All questions and requests in the customer's original message are answered with clear next steps. | $\ge 4$ | If a question was skipped but data is available $\rightarrow$ **`reescrito`**; if tool data is missing $\rightarrow$ **`rechazado`**. |
 
-### 3.2 Offline Benchmark Quality Targets & Production Baseline (`v3`)
+### 3.2 Offline benchmark quality targets
 
-Offline evaluations against the 23-scenario golden dataset ([data/eval_dataset.jsonl](data/eval_dataset.jsonl), mapped in [data/eval_coverage.md](data/eval_coverage.md)) are gated by our **Core Quality Targets** (execution instructions in [EVALUATION_GUIDE.md](EVALUATION_GUIDE.md)):
-1. **Hard Gates (Safety & Policy)**: `escalation_accuracy >= 95.0%` and `mean_qa_politica >= 4.50 / 5.00` (with `tool_call_accuracy = 100.0%` for Triage CRM lookups).
-2. **Primary Winner Metric**: `pass_rate >= 85.0%` (percentage of scenarios passing category, routing, tool trajectory, escalation, and QA together).
-3. **Tie-Breaker**: `first_pass_qa_approval_rate >= 80.0%` (approved by QA on attempt 1 without retry).
+LangSmith runs the [23 golden scenarios](data/eval_dataset.jsonl). The [coverage matrix](data/eval_coverage.md) identifies the automated assertions and manual review criteria.
 
-#### Verified Production Baseline (`v3` on `gpt-4o-mini`)
-Following iterative evaluation (`v1` $\rightarrow$ `v2` $\rightarrow$ `v3`, detailed in [docs/eval_history/v3_FLAWS_SUMMARY.md](docs/eval_history/v3_FLAWS_SUMMARY.md)), **`v3`** is our approved production baseline:
-- **Quality**: The pipeline achieves a **95.65% end-to-end pass rate** (22/23 scenarios), with **100% routing and tool-call accuracy**, a **100% first-pass QA approval rate**, and a **5.00 / 5.00 mean QA score** across accuracy, policy, tone, and completeness.
-- **Cost**: Each ticket consumes an average of **8,585 total tokens** across the 3-stage pipeline (Triage $\rightarrow$ Specialist $\rightarrow$ QA), representing roughly **\$0.002–\$0.003 per resolved ticket** on `gpt-4o-mini` with zero wasted QA retry loops.
-- **Performance**: End-to-end resolution averages **10.54 seconds per ticket** across all 3 sequential agent invocations and SQLite tool queries.
-- **Safety**: The system maintains a **95.45% human-escalation accuracy** and a **5.00 / 5.00 policy compliance score**, blocking 100% of cross-customer PII leaks (`EVAL-010`, `EVAL-016`), prompt-injection attacks (`EVAL-014`), out-of-scope requests (`EVAL-015`), and contradictory/hallucinated drafts (`EVAL-020`).
+| Metric | Passing threshold |
+|---|---:|
+| Escalation accuracy | 95% |
+| Mean QA policy score | 4.50 / 5 |
+| Scenario pass rate | 85% |
+| First-pass QA approval or rewrite | 80% |
+
+### 3.3 Approved production baseline
+
+The approved pipeline uses `v4` for triage, returns, technical support, and inquiries, with `qa:v3`. The [active version map](src/agents/active_versions.yaml) selects these agents, while the [active baseline](data/baseline_pipeline.json) supplies the regression comparison metrics. See the [latest full report](data/latest_eval_report.md) for measured results and the [baseline history](AGENT_IMPROVEMENTS_HISTORY.md#4-baseline-history) for previous runs.

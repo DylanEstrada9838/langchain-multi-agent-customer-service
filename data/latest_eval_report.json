@@ -2,32 +2,32 @@
   "passed": true,
   "targets_passed": true,
   "regression_passed": true,
-  "baseline_found": true,
-  "experiment_name": "pipeline-v3-5c56e0e6",
-  "experiment_url": "https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/b97bf224-299f-4d83-92e5-1a0baa098a69",
+  "baseline_found": false,
+  "experiment_name": "pipeline-mixed-b8d06fbe",
+  "experiment_url": "https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/843ec8af-32d9-4b9b-ad53-c5e7ebef2d15",
   "versions": {
-    "triaje": "v3",
-    "devoluciones": "v3",
-    "soporte_tecnico": "v3",
-    "consultas": "v3",
+    "triaje": "v4",
+    "devoluciones": "v4",
+    "soporte_tecnico": "v4",
+    "consultas": "v4",
     "qa": "v3"
   },
   "total_examples": 23,
   "metrics": {
     "pass_rate": 0.9565,
-    "escalation_accuracy": 0.9545,
+    "escalation_accuracy": 1.0,
     "mean_qa_politica": 5.0,
     "first_pass_qa_approval_rate": 1.0,
-    "avg_tokens": 8564.8,
-    "avg_cost_usd": 0.00185,
-    "avg_latency_seconds": 10.2,
-    "avg_ttft_seconds": 10.2
+    "avg_tokens": 8892.1,
+    "avg_cost_usd": 0.00164,
+    "avg_latency_seconds": 12.07,
+    "avg_ttft_seconds": null
   },
   "targets": [
     {
       "priority": "1. Hard Gate (Safety & Escalation)",
       "metric": "escalation_accuracy",
-      "value": 0.9545,
+      "value": 1.0,
       "target": 0.95,
       "passed": true,
       "description": "No fallar en escalados obligatorios ni falsos escalados"
@@ -57,69 +57,185 @@
       "description": "% de tickets aprobados por QA a la primera sin reintento"
     }
   ],
-  "comparisons": [
-    {
-      "metric": "pass_rate",
-      "value": 0.9565,
-      "baseline": 0.9565,
-      "delta": 0.0,
-      "tolerance": 0.05,
-      "regressed": false
-    },
-    {
-      "metric": "escalation_accuracy",
-      "value": 0.9545,
-      "baseline": 0.9545,
-      "delta": 0.0,
-      "tolerance": 0.05,
-      "regressed": false
-    },
-    {
-      "metric": "first_pass_qa_approval_rate",
-      "value": 1.0,
-      "baseline": 1.0,
-      "delta": 0.0,
-      "tolerance": 0.05,
-      "regressed": false
-    },
-    {
-      "metric": "mean_qa_politica",
-      "value": 5.0,
-      "baseline": 5.0,
-      "delta": 0.0,
-      "tolerance": 0.25,
-      "regressed": false
-    }
-  ],
+  "comparisons": [],
   "costs": [
     {
       "metric": "avg_tokens",
-      "value": 8564.8,
-      "baseline": 8564.8,
-      "delta_pct": 0.0
+      "value": 8892.1,
+      "baseline": null,
+      "delta_pct": null
     },
     {
       "metric": "avg_cost_usd",
-      "value": 0.00185,
-      "baseline": 0.00185,
-      "delta_pct": 0.0
+      "value": 0.00164,
+      "baseline": null,
+      "delta_pct": null
     },
     {
       "metric": "avg_latency_seconds",
-      "value": 10.2,
-      "baseline": 10.2,
-      "delta_pct": 0.0
+      "value": 12.07,
+      "baseline": null,
+      "delta_pct": null
     },
     {
       "metric": "avg_ttft_seconds",
-      "value": 10.2,
-      "baseline": 10.2,
-      "delta_pct": 0.0
+      "value": null,
+      "baseline": null,
+      "delta_pct": null
     }
   ],
   "failed_scenarios": {
-    "EVAL-018": [
-      "escalado_match"
+    "EVAL-004": [
+      "scenario_assertions"
     ]
+  },
+  "scenario_feedback": {
+    "EVAL-004": {
+      "scenario_assertions": "Failed: tool_result.consultar_pedido.1. Manual criteria: 3, 4.",
+      "manual_review": "3, 4"
+    },
+    "EVAL-002": {
+      "manual_review": "3"
+    },
+    "EVAL-003": {
+      "manual_review": "2, 3, 4"
+    },
+    "EVAL-001": {
+      "manual_review": "4"
+    },
+    "EVAL-005": {
+      "manual_review": "3, 4"
+    },
+    "EVAL-006": {
+      "manual_review": "3, 4"
+    },
+    "EVAL-008": {
+      "manual_review": "3, 4"
+    },
+    "EVAL-007": {
+      "manual_review": "3"
+    },
+    "EVAL-009": {
+      "manual_review": "2"
+    },
+    "EVAL-010": {
+      "manual_review": "3"
+    },
+    "EVAL-011": {
+      "manual_review": "2, 3"
+    },
+    "EVAL-012": {
+      "manual_review": "1, 4"
+    },
+    "EVAL-015": {
+      "manual_review": "1, 2"
+    },
+    "EVAL-013": {
+      "manual_review": "1, 2"
+    },
+    "EVAL-014": {
+      "manual_review": "3"
+    },
+    "EVAL-016": {
+      "manual_review": "2, 3"
+    },
+    "EVAL-017": {
+      "manual_review": "2, 3"
+    },
+    "EVAL-019": {
+      "manual_review": "3"
+    },
+    "EVAL-018": {
+      "manual_review": "2"
+    },
+    "EVAL-023": {
+      "manual_review": "2, 3"
+    },
+    "EVAL-021": {
+      "manual_review": "4"
+    },
+    "EVAL-022": {
+      "manual_review": "3"
+    }
+  },
+  "scenario_ids": [
+    "EVAL-001",
+    "EVAL-002",
+    "EVAL-003",
+    "EVAL-004",
+    "EVAL-005",
+    "EVAL-006",
+    "EVAL-007",
+    "EVAL-008",
+    "EVAL-009",
+    "EVAL-010",
+    "EVAL-011",
+    "EVAL-012",
+    "EVAL-013",
+    "EVAL-014",
+    "EVAL-015",
+    "EVAL-016",
+    "EVAL-017",
+    "EVAL-018",
+    "EVAL-019",
+    "EVAL-020",
+    "EVAL-021",
+    "EVAL-022",
+    "EVAL-023"
+  ],
+  "partial": false,
+  "provenance": {
+    "benchmark_fingerprint": "3c0e4a2cb480634f831cb9376827e9e1e894a20d507a9dce5badeb3d2729e846",
+    "source_fingerprint": "098b4486bb48c6c0dc45e252ef422c20532ac176b2f3212a06f57bc416e22a32",
+    "fixture_date": "2026-01-15",
+    "models": {
+      "triaje": {
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "temperature": 0.0,
+        "max_tokens": 1500,
+        "timeout": 60
+      },
+      "devoluciones": {
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "temperature": 0.0,
+        "max_tokens": 1500,
+        "timeout": 60
+      },
+      "soporte_tecnico": {
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "temperature": 0.0,
+        "max_tokens": 1500,
+        "timeout": 60
+      },
+      "consultas": {
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "temperature": 0.0,
+        "max_tokens": 1500,
+        "timeout": 60
+      },
+      "qa": {
+        "provider": "openai",
+        "model_name": "gpt-4o-mini",
+        "temperature": 0.0,
+        "max_tokens": 1500,
+        "timeout": 60
+      }
+    },
+    "fixture_settings": {
+      "EMPRESA_NOMBRE": "TechStore",
+      "DIAS_DEVOLUCION_ESTANDAR": 30,
+      "DIAS_DEVOLUCION_VIP": 60,
+      "FAKER_LOCALE": "es_ES",
+      "FAKER_SEED": 42,
+      "NUM_CLIENTES": 50,
+      "NUM_PEDIDOS": 150,
+      "NUM_PRODUCTOS": 25,
+      "NUM_INCIDENCIAS": 5,
+      "MAX_QA_RETRIES": 1
+    }
   }
 }

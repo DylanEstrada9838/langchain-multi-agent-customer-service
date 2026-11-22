@@ -1,6 +1,6 @@
 # Agent System Improvements History
 
-This document details the evolutionary journey, prompt engineering refinements, and architectural progression of all agents in the TechStore multi-agent customer support system from baseline proof-of-concept (**`v1`**) to production-ready deployment (**`v3`**).
+This document details the evolutionary journey, prompt engineering refinements, and architectural progression of all agents in the TechStore multi-agent customer support system from the `v1` proof of concept to the [current approved baseline](#4-baseline-history).
 
 ---
 
@@ -18,7 +18,7 @@ The multi-agent customer support system was iteratively evaluated against a benc
  └───────────────────────────┘       └───────────────────────────┘       └───────────────────────────┘
 ```
 
-### Metrics Comparison Across Agent Generations
+### Historical comparison under the original benchmark (`v1`?`v3`)
 
 | Quality Target / Metric | Gate Threshold | `v1` PoC | `v2` Structured | `v3` Production Baseline | Net Improvement |
 |:---|:---:|:---:|:---:|:---:|:---:|
@@ -149,7 +149,7 @@ Detailed post-mortem and forensic analysis for each generation can be consulted 
 
 - [docs/eval_history/v1_FLAWS_SUMMARY.md](docs/eval_history/v1_FLAWS_SUMMARY.md): Comprehensive review of v1 failures (passive QA, missing tool calls, prompt injection susceptibility).
 - [docs/eval_history/v2_FLAWS_SUMMARY.md](docs/eval_history/v2_FLAWS_SUMMARY.md): Analysis of v2 improvements and the QA over-rejection boundary dilemma.
-- [docs/eval_history/v3_FLAWS_SUMMARY.md](docs/eval_history/v3_FLAWS_SUMMARY.md): Final certification report detailing the calibration that achieved the Approved Production Baseline.
+- [docs/eval_history/v3_FLAWS_SUMMARY.md](docs/eval_history/v3_FLAWS_SUMMARY.md): Final certification report detailing the calibration that achieved the first approved baseline.
 
 ---
 
@@ -157,10 +157,11 @@ Detailed post-mortem and forensic analysis for each generation can be consulted 
 
 | Status | Agent versions | Full-suite result | Evidence |
 |---|---|---|---|
-| Current approved baseline | All five agents on `v3` | 22/23 (95.65%) | [JSON snapshot](data/baselines/001-v3-original-checks.json) · [LangSmith run](https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/b97bf224-299f-4d83-92e5-1a0baa098a69) |
+| Previous approved baseline | All five agents on `v3` | 22/23 (95.65%) | [JSON snapshot](data/baselines/001-v3-original-checks.json) · [LangSmith run](https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/b97bf224-299f-4d83-92e5-1a0baa098a69) |
 | Candidate passed the absolute gate | `triaje`, `devoluciones`, `soporte_tecnico`, and `consultas` on `v4`; `qa` on `v3` | 21/23 (91.30%). Remaining failures are `EVAL-004` and `EVAL-015`. | [Candidate JSON snapshot](data/baselines/002-v4-scenario-assertions-candidate.json) · [LangSmith run](https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/381a6b5c-8c45-4fa4-9755-bc68fcf81100) |
+| Current approved baseline | `triaje`, `devoluciones`, `soporte_tecnico`, and `consultas` on `v4`; `qa` on `v3` | 22/23 (95.65%). Remaining failure: `EVAL-004`. | [JSON snapshot](data/baselines/003-v4-langsmith-only.json) · [LangSmith run](https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/843ec8af-32d9-4b9b-ad53-c5e7ebef2d15) |
 
-The two results used different checks and fixture dates. To measure the effect of prompt updates alone, evaluate both version sets with the same dataset, assertions, fixture date, and code revision. See [evaluation comparability](INFRASTRUCTURE_IMPROVEMENTS_HISTORY.md#evaluation-comparability).
+These runs used different evaluation checks or fixture settings. To measure the effect of prompt updates alone, evaluate both version sets with the same dataset, assertions, fixture date, and code revision. See [evaluation comparability](INFRASTRUCTURE_IMPROVEMENTS_HISTORY.md#evaluation-comparability).
 
 ### v4 prompt changes
 
