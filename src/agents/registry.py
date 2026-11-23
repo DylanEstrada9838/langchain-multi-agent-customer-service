@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from src import config
 from src.llm import LLMFactory, ModelConfig
 from src.pipeline.context import TicketContext
-from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
+from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA, EvaluacionQACompacta
 from src.tools import CONSULTAS_TOOLS, DEVOLUCIONES_TOOLS, QA_TOOLS, SOPORTE_TOOLS, TRIAJE_TOOLS
 
 SPECS_DIR = Path(__file__).resolve().parent / "specs"
@@ -72,6 +72,8 @@ def load_spec(
 
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     tools, schema = AGENT_BINDINGS[name]
+    if name == "qa" and raw.get("reuse_approved_draft") is True:
+        schema = EvaluacionQACompacta
     model_overrides = dict(raw.get("model") or {})
     model_overrides.update({key: value for key, value in {"provider": provider, "model_name": model_name}.items() if value is not None})
     model_cfg = ModelConfig().with_overrides(**model_overrides)

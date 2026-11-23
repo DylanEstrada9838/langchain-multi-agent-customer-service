@@ -83,12 +83,15 @@ $baseline = ".\outputs\baseline-$(Get-Date -Format yyyyMMdd-HHmmss).json"
 .\.venv\Scripts\python.exe main.py --eval --baseline $baseline --update-baseline
 ```
 
-## 4. Evaluate and promote a candidate
+## 4. Promote through a pull request
 
-1. Create or update the candidate spec and run the full LangSmith benchmark with its version override.
-2. Review the per-scenario failures and manual criteria in the report. Compare only runs with compatible benchmark fingerprints.
-3. Update [active_versions.yaml](src/agents/active_versions.yaml) when promoting the candidate. Archive the candidate baseline under [data/baselines](data/baselines), index it in the [agent history](AGENT_IMPROVEMENTS_HISTORY.md#4-baseline-history), and update the active baseline if approved.
-4. Commit the active version map, baseline, archived snapshot, and both reports with the evaluated source. The [CI workflow](.github/workflows/eval-gate.yml) runs unit tests, verifies full scenario coverage, active versions, runtime and benchmark fingerprints, and checks that Markdown matches the JSON report.
+Open a pull request to `main` for each baseline promotion so the evidence and decision are recorded together.
+
+1. Create a promotion branch and run the full LangSmith benchmark with the candidate versions. Use a compatible baseline for comparisons or a fresh path when the benchmark fingerprint has changed.
+2. Review the quality gate, per-scenario failures, and manual criteria. When the candidate is approved, update [active_versions.yaml](src/agents/active_versions.yaml), the [active baseline](data/baseline_pipeline.json), and both full reports from the same run.
+3. Archive the snapshot under [data/baselines](data/baselines) and index it in the [baseline history](AGENT_IMPROVEMENTS_HISTORY.md#4-baseline-history).
+4. Push the promotion branch and open a pull request. Include the evaluated version mix, the LangSmith experiment, the scenario and escalation results, any failures or manual checks, and whether the new benchmark is comparable with the previous baseline.
+5. Wait for the [evaluation workflow](.github/workflows/eval-gate.yml) before merging. It runs the unit tests, validates the saved report against the checked-out dataset and source, and posts the report on the pull request. It makes no live model calls.
 
 ---
 

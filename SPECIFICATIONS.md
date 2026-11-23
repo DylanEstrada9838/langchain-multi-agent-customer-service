@@ -144,4 +144,4 @@ LangSmith runs the [23 golden scenarios](data/eval_dataset.jsonl). The [coverage
 
 ### 3.3 Approved production baseline
 
-The approved pipeline uses `v4` for triage, returns, technical support, and inquiries, with `qa:v3`. The [active version map](src/agents/active_versions.yaml) selects these agents, while the [active baseline](data/baseline_pipeline.json) supplies the regression comparison metrics. See the [latest full report](data/latest_eval_report.md) for measured results and the [baseline history](AGENT_IMPROVEMENTS_HISTORY.md#4-baseline-history) for previous runs.
+The approved pipeline uses `v4` for all five agents. QA reuses approved specialist drafts and supplies replacement text when it rewrites a reply. The [active version map](src/agents/active_versions.yaml) selects these agents, while the [active baseline](data/baseline_pipeline.json) supplies the regression comparison metrics. See the [latest full report](data/latest_eval_report.md) for measured results and the [baseline history](AGENT_IMPROVEMENTS_HISTORY.md#4-baseline-history) for previous runs.

@@ -12,7 +12,7 @@ from src.agents import active_version, build_agent, get_active_versions
 from src.llm import calculate_cost
 from src.pipeline import steps
 from src.pipeline.context import TicketContext, generar_contexto
-from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
+from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA, EvaluacionQACompacta
 
 RECURSION_LIMIT = 15
 
@@ -68,7 +68,7 @@ class ResultadoTicket(BaseModel):
     clasificacion: ClasificacionTicket | None
     especialista: str | None
     borrador: BorradorRespuesta | None
-    qa: EvaluacionQA | None
+    qa: EvaluacionQA | EvaluacionQACompacta | None
     respuesta_final: str
     intentos_qa: int = 1
     escalado_humano: bool = False
@@ -239,7 +239,7 @@ def procesar_ticket(
         if failed_stage or qa is None or qa.veredicto == "rechazado":
             respuesta_final = "Tu caso requiere la revisión de un especialista humano de " + config.EMPRESA_NOMBRE + "."
         else:
-            respuesta_final = qa.respuesta_final
+            respuesta_final = qa.respuesta_final if qa.respuesta_final is not None else borrador.respuesta_cliente
 
         all_tools = [tc for m in metricas for tc in m.tool_calls]
         total_tokens = sum(m.total_tokens for m in metricas)

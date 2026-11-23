@@ -159,11 +159,14 @@ Detailed post-mortem and forensic analysis for each generation can be consulted 
 |---|---|---|---|
 | Previous approved baseline | All five agents on `v3` | 22/23 (95.65%) | [JSON snapshot](data/baselines/001-v3-original-checks.json) · [LangSmith run](https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/b97bf224-299f-4d83-92e5-1a0baa098a69) |
 | Candidate passed the absolute gate | `triaje`, `devoluciones`, `soporte_tecnico`, and `consultas` on `v4`; `qa` on `v3` | 21/23 (91.30%). Remaining failures are `EVAL-004` and `EVAL-015`. | [Candidate JSON snapshot](data/baselines/002-v4-scenario-assertions-candidate.json) · [LangSmith run](https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/381a6b5c-8c45-4fa4-9755-bc68fcf81100) |
-| Current approved baseline | `triaje`, `devoluciones`, `soporte_tecnico`, and `consultas` on `v4`; `qa` on `v3` | 22/23 (95.65%). Remaining failure: `EVAL-004`. | [JSON snapshot](data/baselines/003-v4-langsmith-only.json) · [LangSmith run](https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/843ec8af-32d9-4b9b-ad53-c5e7ebef2d15) |
+| Previous approved baseline | `triaje`, `devoluciones`, `soporte_tecnico`, and `consultas` on `v4`; `qa` on `v3` | 22/23 (95.65%). Remaining failure: `EVAL-004`. | [JSON snapshot](data/baselines/003-v4-langsmith-only.json) · [LangSmith run](https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/843ec8af-32d9-4b9b-ad53-c5e7ebef2d15) |
+| Current approved baseline | All five agents on `v4` | 21/23 (91.30%). Remaining failures are `EVAL-004` and `EVAL-005`. | [JSON snapshot](data/baselines/004-v4-qa-draft-reuse.json) · [LangSmith run](https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/11b4bdaa-0791-4706-ba7f-0146f195d3dc) |
 
 These runs used different evaluation checks or fixture settings. To measure the effect of prompt updates alone, evaluate both version sets with the same dataset, assertions, fixture date, and code revision. See [evaluation comparability](INFRASTRUCTURE_IMPROVEMENTS_HISTORY.md#evaluation-comparability).
 
 ### v4 prompt changes
+
+- QA reuses an approved specialist draft and generates replacement text only when rewriting. The paired four-scenario comparison against `qa:v3` measured 83.3% fewer QA output tokens and 1.9% fewer total tokens, with the same three scenarios passing.
 
 - Triage assigns urgent priority to severe complaints that combine an explicit account-cancellation threat with a demand for immediate action. It leaves order and SKU fields empty for requests unrelated to store orders or products.
 - Inquiries names the return exclusions, includes verified shipping details, and skips order lookups for entirely out-of-scope requests.

@@ -1,7 +1,7 @@
 """Esquemas de salida estructurada (response_format) de los agentes."""
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 Categoria = Literal["devolucion", "soporte_tecnico", "consulta", "queja_grave"]
 
@@ -34,3 +34,15 @@ class EvaluacionQA(BaseModel):
         default="Sin observaciones adicionales.",
         description="Justificación del veredicto o ajustes realizados",
     )
+
+class EvaluacionQACompacta(EvaluacionQA):
+    respuesta_final: str | None = Field(description="Texto corregido si el veredicto es reescrito. Null en otro caso.")
+
+    @model_validator(mode="after")
+    def validar_respuesta_segun_veredicto(self) -> "EvaluacionQACompacta":
+        if self.veredicto == "reescrito":
+            if not self.respuesta_final or not self.respuesta_final.strip():
+                raise ValueError("Un veredicto reescrito requiere una respuesta corregida.")
+        elif self.respuesta_final is not None:
+            raise ValueError("Solo un veredicto reescrito admite una respuesta corregida.")
+        return self

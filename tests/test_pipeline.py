@@ -480,3 +480,21 @@ def test_golden_scenarios_have_valid_assertion_definitions():
         for result in rules.tool_results:
             for pattern in result.contains.values():
                 re.compile(pattern)
+
+
+@pytest.mark.parametrize(("verdict", "rewrite", "expected"), [
+    ("aprobado", None, "borrador"),
+    ("reescrito", "texto corregido", "texto corregido"),
+])
+def test_compact_qa_only_supplies_text_when_rewriting(verdict, rewrite, expected):
+    from src.agents import load_spec
+    from src.schemas.outputs import EvaluacionQACompacta
+
+    assert load_spec("qa", "v4").response_format is EvaluacionQACompacta
+    assert load_spec("qa", "v3").response_format is EvaluacionQA
+    review = EvaluacionQACompacta(
+        precision=5, politica=5, tono=5, completitud=5, veredicto=verdict, respuesta_final=rewrite,
+    )
+    result = procesar_ticket(TICKETS[0], _sistema("consulta", qas=review))
+    assert result.respuesta_final == expected
+    assert result.qa.respuesta_final == rewrite
