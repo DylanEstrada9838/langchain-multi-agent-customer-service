@@ -1,24 +1,24 @@
 {
   "schema": 2,
-  "created_at": "2026-11-23T00:03:33+00:00",
+  "created_at": "2026-11-23T01:54:14+00:00",
   "versions": {
-    "triaje": "v4",
-    "devoluciones": "v4",
+    "triaje": "v7",
+    "devoluciones": "v8",
     "soporte_tecnico": "v4",
-    "consultas": "v4",
+    "consultas": "v9",
     "qa": "v4"
   },
-  "experiment": "pipeline-v4-b73b3b94",
+  "experiment": "crm-v7-returns-v8-consultas-v9-2786dfe1",
   "total_examples": 23,
   "metrics": {
-    "pass_rate": 0.913,
+    "pass_rate": 0.9565,
     "escalation_accuracy": 1.0,
     "mean_qa_politica": 5.0,
-    "first_pass_qa_approval_rate": 1.0,
-    "avg_tokens": 8792.9,
-    "avg_cost_usd": 0.001542,
-    "avg_latency_seconds": 11.96,
+    "first_pass_qa_approval_rate": 0.9545,
+    "avg_tokens": 6956.2,
+    "avg_cost_usd": 0.001244,
+    "avg_latency_seconds": 8.68,
     "avg_ttft_seconds": null
   },
-  "benchmark_fingerprint": "c5f866c52bc331d452e2c354a990b74b67778ae8a3ff0683643af9b669d1db57"
+  "benchmark_fingerprint": "50f9b1fd05adcc6af3e890b49f1a352b61cd8535ad3dfb725a35d1c65c759734"
 }

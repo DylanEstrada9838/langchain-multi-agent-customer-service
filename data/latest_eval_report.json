@@ -3,24 +3,24 @@
   "targets_passed": true,
   "regression_passed": true,
   "baseline_found": false,
-  "experiment_name": "pipeline-v4-b73b3b94",
-  "experiment_url": "https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/11b4bdaa-0791-4706-ba7f-0146f195d3dc",
+  "experiment_name": "crm-v7-returns-v8-consultas-v9-2786dfe1",
+  "experiment_url": "https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/99b30088-975a-4aab-bc94-6f81e8f0243a",
   "versions": {
-    "triaje": "v4",
-    "devoluciones": "v4",
+    "triaje": "v7",
+    "devoluciones": "v8",
     "soporte_tecnico": "v4",
-    "consultas": "v4",
+    "consultas": "v9",
     "qa": "v4"
   },
   "total_examples": 23,
   "metrics": {
-    "pass_rate": 0.913,
+    "pass_rate": 0.9565,
     "escalation_accuracy": 1.0,
     "mean_qa_politica": 5.0,
-    "first_pass_qa_approval_rate": 1.0,
-    "avg_tokens": 8792.9,
-    "avg_cost_usd": 0.001542,
-    "avg_latency_seconds": 11.96,
+    "first_pass_qa_approval_rate": 0.9545,
+    "avg_tokens": 6956.2,
+    "avg_cost_usd": 0.001244,
+    "avg_latency_seconds": 8.68,
     "avg_ttft_seconds": null
   },
   "targets": [
@@ -43,7 +43,7 @@
     {
       "priority": "2. Primary Winner Metric",
       "metric": "pass_rate",
-      "value": 0.913,
+      "value": 0.9565,
       "target": 0.85,
       "passed": true,
       "description": "% de escenarios resueltos de principio a fin sin ningún fallo"
@@ -51,7 +51,7 @@
     {
       "priority": "3. Tie-Breaker",
       "metric": "first_pass_qa_approval_rate",
-      "value": 1.0,
+      "value": 0.9545,
       "target": 0.8,
       "passed": true,
       "description": "% de tickets aprobados por QA a la primera sin reintento"
@@ -61,19 +61,19 @@
   "costs": [
     {
       "metric": "avg_tokens",
-      "value": 8792.9,
+      "value": 6956.2,
       "baseline": null,
       "delta_pct": null
     },
     {
       "metric": "avg_cost_usd",
-      "value": 0.001542,
+      "value": 0.001244,
       "baseline": null,
       "delta_pct": null
     },
     {
       "metric": "avg_latency_seconds",
-      "value": 11.96,
+      "value": 8.68,
       "baseline": null,
       "delta_pct": null
     },
@@ -85,18 +85,11 @@
     }
   ],
   "failed_scenarios": {
-    "EVAL-004": [
-      "scenario_assertions"
-    ],
-    "EVAL-005": [
-      "scenario_assertions"
+    "EVAL-010": [
+      "tool_trajectory_match"
     ]
   },
   "scenario_feedback": {
-    "EVAL-004": {
-      "scenario_assertions": "Failed: tool_result.consultar_pedido.1. Manual criteria: 3, 4.",
-      "manual_review": "3, 4"
-    },
     "EVAL-002": {
       "manual_review": "3"
     },
@@ -106,36 +99,39 @@
     "EVAL-001": {
       "manual_review": "4"
     },
-    "EVAL-005": {
-      "scenario_assertions": "Failed: reply_requires.3, reply_requires.4. Manual criteria: 3, 4.",
+    "EVAL-004": {
       "manual_review": "3, 4"
     },
-    "EVAL-006": {
+    "EVAL-005": {
       "manual_review": "3, 4"
     },
     "EVAL-008": {
       "manual_review": "3, 4"
     },
+    "EVAL-006": {
+      "manual_review": "3, 4"
+    },
     "EVAL-007": {
+      "manual_review": "3"
+    },
+    "EVAL-010": {
+      "tool_trajectory_match": "recall=0.0",
       "manual_review": "3"
     },
     "EVAL-009": {
       "manual_review": "2"
     },
-    "EVAL-010": {
-      "manual_review": "3"
+    "EVAL-012": {
+      "manual_review": "1, 4"
     },
     "EVAL-011": {
       "manual_review": "2, 3"
     },
-    "EVAL-013": {
-      "manual_review": "1, 2"
-    },
-    "EVAL-012": {
-      "manual_review": "1, 4"
-    },
     "EVAL-014": {
       "manual_review": "3"
+    },
+    "EVAL-013": {
+      "manual_review": "1, 2"
     },
     "EVAL-015": {
       "manual_review": "1, 2"
@@ -189,8 +185,8 @@
   ],
   "partial": false,
   "provenance": {
-    "benchmark_fingerprint": "c5f866c52bc331d452e2c354a990b74b67778ae8a3ff0683643af9b669d1db57",
-    "source_fingerprint": "4a203c9a5e8d3bcaee656e6ffae1f3621bdd53f3ff5fe31f80fda790799b20eb",
+    "benchmark_fingerprint": "50f9b1fd05adcc6af3e890b49f1a352b61cd8535ad3dfb725a35d1c65c759734",
+    "source_fingerprint": "d2cf0aa5177c9a21ca2eac2564a9f1ae351b0051d2012de28e7e144bdec4ae0a",
     "fixture_date": "2026-01-15",
     "models": {
       "triaje": {
