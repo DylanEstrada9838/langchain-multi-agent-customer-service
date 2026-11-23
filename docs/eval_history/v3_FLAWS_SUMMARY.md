@@ -1,44 +1,31 @@
-# Resumen de Evaluación y Resultados de `v3` (`APPROVED` — 22/23 Escenarios)
+# Evaluation Results and Remaining Flaw in `v3`
 
-**Informe evaluado**: `outputs/eval_pipeline_20261119_035429.json` (23 escenarios)
-**Veredicto oficial de Quality Gates**: ✅ **`APPROVED` (`quality_gate_passed: true`)**
+**Evaluated report** — `outputs/eval_pipeline_20261119_035429.json` (23 scenarios).
+**Quality gate** — Approved (`quality_gate_passed: true`).
 
----
+## 1. Metric changes
 
-## 1. Evolución de Métricas (`v1` $\rightarrow$ `v2` $\rightarrow$ `v3`)
+| Metric | Target | `v1` | `v2` | `v3` | Change from `v2` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Quality gate | All thresholds | Failed | Failed | Passed | All four thresholds passed |
+| Escalation accuracy | ≥ 95.0% | 100.00% | 86.36% | 95.45% (21/22) | +9.09 points |
+| Mean QA policy score | ≥ 4.50 / 5 | 4.68 / 5 | 4.73 / 5 | 5.00 / 5 | +0.27 |
+| Pass rate | ≥ 85.0% | 65.22% (15/23) | 86.96% (20/23) | 95.65% (22/23) | +8.69 points |
+| First-pass QA approval | ≥ 80.0% | 95.45% | 86.36% | 100.00% (22/22) | +13.64 points |
+| Category accuracy | — | 95.45% | 100.00% | 100.00% (22/22) | Stable |
+| Tool trajectory recall | — | 90.15% | 100.00% | 100.00% (23/23) | Stable |
+| Mean QA score | — | 4.45 / 5 | 4.81 / 5 | 5.00 / 5 | +0.19 |
+| Average latency | — | 11.88 s | 11.77 s | 10.54 s | −1.23 s |
+| Average tokens | — | 6,551.6 | 9,037.4 | 8,584.7 | −452.7 per ticket |
 
-| Prioridad / Métrica | Target Oficial | `v1` | `v2` | **`v3` (`APPROVED`)** | Mejora `v2` $\rightarrow$ `v3` |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **Veredicto Global (`quality_gate_passed`)** | **ALL PASS** | ❌ `FAIL` | ❌ `FAIL` | ✅ **`PASS`** | **Supera los 4 umbrales** |
-| **1. Hard Gate: `escalation_accuracy`** | **$\ge 95.0\%$** | `100.00%` ✅ | `86.36%` ❌ | **`95.45%` (21/22) ✅** | **+9.09 pts** |
-| **1b. Hard Gate: `mean_qa_politica`** | **$\ge 4.50 / 5$** | `4.68 / 5` ✅ | `4.73 / 5` ✅ | **`5.00 / 5.00` ✅** | **+0.27 pts (Pleno)** |
-| **2. Primary Winner: `pass_rate`** | **$\ge 85.0\%$** | `65.22%` (15/23) ❌ | `87.96%` (20/23) ✅ | **`95.65%` (22/23) ✅** | **+8.69 pts (+2 escenarios)** |
-| **3. Tie-Breaker: `first_pass_qa_approval_rate`** | **$\ge 80.0\%$** | `95.45%` ✅ | `86.36%` ✅ | **`100.00%` (22/22) ✅** | **+13.64 pts (Pleno)** |
-| *Diagnóstico: `category_accuracy`* | - | `95.45%` | `100.00%` | **`100.00%` (22/22)** | Mantiene 100% |
-| *Diagnóstico: `tool_trajectory_recall`* | - | `90.15%` | `100.00%` | **`100.00%` (23/23)** | Mantiene 100% |
-| *Diagnóstico: `mean_qa_score`* | - | `4.45 / 5.00` | `4.81 / 5.00` | **`5.00 / 5.00`** | **+0.19 pts (Pleno)** |
-| *Diagnóstico: `avg_latency_seconds`* | - | `11.88 s` | `11.77 s` | **`10.54 s`** | **-1.23 s más rápido** |
-| *Diagnóstico: `avg_tokens`* | - | `6551.6` | `9037.4` | **`8584.7`** | **-452.7 tokens/ticket** |
+## 2. Fixes from `v2`
 
----
+- **Expired return (`EVAL-012`).** Returns recorded `elegible=false` for `P9002` because 46 days had elapsed and the standard window was 30 days. QA accepted the denial on the first attempt with 5/5 in all four dimensions and no human escalation.
+- **Missing order (`EVAL-017`).** Inquiries correctly explained that `P9999` was missing and also mentioned the customer's orders `P9008` and `P9003`. QA approved the first draft with 5/5 and no human escalation.
+- **Fewer retries.** QA approved all 22 end-to-end scenarios on the first attempt and still rejected the contradictory draft in the QA-only scenario `EVAL-020`. Average latency fell to 10.54 seconds.
 
-## 2. Fallos de `v2` Resueltos en `v3`
+## 3. Remaining failure in `v3` (`EVAL-018`)
 
-1. **Fin del sobre-rechazo de QA en devoluciones denegadas por política (`EVAL-012`)**:
-   - En `v3`, `devoluciones` registró explícitamente `elegible=false` en `datos_verificados` al superar los 30 días del plazo Estándar (46 días transcurridos en `P9002`), y `qa` (`v3`) aprobó la denegación a la primera (`5/5` en las 4 dimensiones, `intentos_qa: 1`, `escalado_humano: false`).
-2. **Fin del sobre-rechazo de QA cuando un pedido no existe en el ERP (`EVAL-017`)**:
-   - En `v3`, cuando `consultar_pedido` devolvió error de pedido no encontrado para `P9999`, `consultas` (`v3`) informó con precisión a la clienta Marta Soler de que `P9999` no existe (mencionando además sus pedidos reales `P9008` y `P9003`), y `qa` (`v3`) lo aprobó en el primer intento (`5/5`, `intentos_qa: 1`, `escalado_humano: false`).
-3. **Reducción de latencia y consumo de tokens**:
-   - Al eliminar los falsos rechazos de QA (`first_pass_qa_approval_rate = 100%` en los 22 escenarios end-to-end, mientras sigue rechazando el borrador contradictorio de `EVAL-020`), se evitaron reintentos innecesarios, reduciendo el tiempo medio por escenario a `10.54s`.
+Technical Support missed a required escalation for a smart espresso machine displaying `E-404`. The agent searched `buscar_knowledge_base` with `categoria="domotica"`. `SupportRepository.search_kb()` returned unrelated camera and thermostat articles (`KB-003` and `KB-004`) through category filtering or matches on common words. Those results and the general smart-home incident `INC-001` led the agent to leave `requiere_escalado: false`.
 
----
-
-## 3. Único Escenario Pendiente en `v3` (`EVAL-018`)
-
-De los 23 escenarios, `v3` superó **22/23 (`95.65%`)**. El único escenario que no marcó `escalado_humano: true` fue **`EVAL-018`** (cafetera espresso inteligente con `error E-404`):
-- **Causa técnica identificada**:
-  - `soporte_tecnico` invocó `buscar_knowledge_base(consulta="error E-404 en la pantalla táctil y no calienta el agua", categoria="domotica")`.
-  - Debido a que pasó `categoria="domotica"`, `SupportRepository.search_kb()` filtró artículos de la categoría `domotica` (`KB-003` de cámaras WiFi / `KB-004` de termostatos) o coincidió por palabras comunes ("no", "la", "el"), devolviendo una lista de resultados **no vacía** en lugar de `"resultados": []`.
-  - Al recibir artículos de `domotica` y ver la incidencia global `INC-001` ("Cloud de cámaras y app domótica"), el agente interpretó que había guía en la KB para dispositivos domóticos y dejó `requiere_escalado: false`.
-- **Oportunidad de mejora futura (`v4` / capa de búsqueda KB)**:
-  - En `soporte_tecnico`: instruir que si los artículos devueltos por `buscar_knowledge_base` pertenecen a un producto distinto al consultado por el cliente (p. ej., devuelve artículos de cámaras o termostatos cuando el cliente pregunta por una cafetera espresso o un código de error específico `E-404` no mencionado en el artículo), debe tratarlo igual que un resultado vacío y activar `requiere_escalado=True`.
+**Proposed change for `v4`** — Treat articles about a different product or articles that lack the reported error code as an empty result, and set `requiere_escalado=True` when relevant guidance is unavailable.

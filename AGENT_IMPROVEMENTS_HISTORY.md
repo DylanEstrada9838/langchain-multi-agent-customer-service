@@ -42,25 +42,25 @@ The system comprises 5 specialized agents collaborating via an orchestrator:
 
 ```mermaid
 flowchart TD
-    User([Customer Message]) --> Triaje[Agente de Triaje]
-    Triaje -->|devolucion| Devoluciones[Agente de Devoluciones]
-    Triaje -->|soporte_tecnico| Soporte[Agente de Soporte Técnico]
-    Triaje -->|consulta_general / envio| Consultas[Agente de Consultas]
-    Triaje -->|queja_grave / out_of_scope| Humano([Escalado Humano])
+    User([Customer Message]) --> Triaje[Triage Agent]
+    Triaje -->|devolucion| Devoluciones[Returns Agent]
+    Triaje -->|soporte_tecnico| Soporte[Technical Support Agent]
+    Triaje -->|consulta_general / envio| Consultas[Inquiries Agent]
+    Triaje -->|queja_grave / out_of_scope| Humano([Human escalation])
     
-    Devoluciones --> QA[Agente de QA / Verificador]
+    Devoluciones --> QA[Quality Assurance Agent]
     Soporte --> QA
     Consultas --> QA
     
-    QA -->|aprobado| Approved([Respuesta al Cliente])
-    QA -->|rechazado + feedback| Retry{Reintento <= 2}
-    Retry -->|Sí| Devoluciones
-    Retry -->|Sí| Soporte
-    Retry -->|Sí| Consultas
-    Retry -->|"No (Excedido)"| Humano
+    QA -->|aprobado| Approved([Customer reply])
+    QA -->|rechazado + feedback| Retry{Retry available?}
+    Retry -->|Yes| Devoluciones
+    Retry -->|Yes| Soporte
+    Retry -->|Yes| Consultas
+    Retry -->|No| Humano
 ```
 
-### 2.1 Agente de Triaje (`triaje`)
+### 2.1 Triage Agent (`triaje`)
 
 Responsible for classification, intent extraction, sentiment analysis, and routing to specialized agents or direct human escalation.
 
@@ -76,7 +76,7 @@ Responsible for classification, intent extraction, sentiment analysis, and routi
 
 ---
 
-### 2.2 Agente de Devoluciones (`devoluciones`)
+### 2.2 Returns Agent (`devoluciones`)
 
 Handles return eligibility verification, warranty lookups, and prepaid return label generation according to TechStore return policies.
 
@@ -93,7 +93,7 @@ Handles return eligibility verification, warranty lookups, and prepaid return la
 
 ---
 
-### 2.3 Agente de Consultas (`consultas`)
+### 2.3 Inquiries Agent (`consultas`)
 
 Addresses shipping tracking, order status, carrier logistics, and general store policy inquiries.
 
@@ -108,7 +108,7 @@ Addresses shipping tracking, order status, carrier logistics, and general store 
 
 ---
 
-### 2.4 Agente de Soporte Técnico (`soporte_tecnico`)
+### 2.4 Technical Support Agent (`soporte_tecnico`)
 
 Provides device diagnostics, knowledge base (KB) troubleshooting steps, and warranty-based hardware escalation.
 
@@ -124,7 +124,7 @@ Provides device diagnostics, knowledge base (KB) troubleshooting steps, and warr
 
 ---
 
-### 2.5 Agente de QA / Verificador (`qa`)
+### 2.5 Quality Assurance Agent (`qa`)
 
 Acts as the final safeguard before any customer message is dispatched, auditing factual grounding, policy compliance, tone, and hallucinated data.
 

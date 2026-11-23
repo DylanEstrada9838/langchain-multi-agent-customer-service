@@ -1,6 +1,8 @@
-# Execution & Evaluation Guide
+# LangSmith Evaluation Guide
 
 This guide covers running the multi-agent customer support system from the CLI ([main.py](main.py)), testing candidate agent versions, enforcing the **Quality Gate** through LangSmith against the golden dataset ([data/eval_dataset.jsonl](data/eval_dataset.jsonl)), and deploying changes through automated Pull Requests.
+
+Browse the [public LangSmith evaluation dataset](https://eu.smith.langchain.com/public/6054e633-d70e-4224-aeb9-526a2f6ac75e/d) or read the [published quality gate report](data/latest_eval_report.md).
 
 ---
 
