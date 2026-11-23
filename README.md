@@ -20,7 +20,7 @@ flowchart LR
 
 Triage produces a structured classification and Python selects the specialist. QA checks accuracy, policy compliance, tone, and completeness. The pipeline can send a draft back for revision or route the ticket to a human. [Project specification](SPECIFICATIONS.md)
 
-## AI engineering decisions
+## How the system is built
 
 | Area | Implementation |
 | --- | --- |
