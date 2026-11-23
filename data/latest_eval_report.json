@@ -2,9 +2,9 @@
   "passed": true,
   "targets_passed": true,
   "regression_passed": true,
-  "baseline_found": false,
-  "experiment_name": "crm-v7-returns-v8-consultas-v9-2786dfe1",
-  "experiment_url": "https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/99b30088-975a-4aab-bc94-6f81e8f0243a",
+  "baseline_found": true,
+  "experiment_name": "private-holdout-dev-ci-0d3da73d",
+  "experiment_url": "https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/d0d188c5-4c2d-436e-afab-8533dc17ce5a",
   "versions": {
     "triaje": "v7",
     "devoluciones": "v8",
@@ -14,13 +14,13 @@
   },
   "total_examples": 23,
   "metrics": {
-    "pass_rate": 0.9565,
+    "pass_rate": 1.0,
     "escalation_accuracy": 1.0,
     "mean_qa_politica": 5.0,
-    "first_pass_qa_approval_rate": 0.9545,
-    "avg_tokens": 6956.2,
-    "avg_cost_usd": 0.001244,
-    "avg_latency_seconds": 8.68,
+    "first_pass_qa_approval_rate": 1.0,
+    "avg_tokens": 6638.5,
+    "avg_cost_usd": 0.001187,
+    "avg_latency_seconds": 7.46,
     "avg_ttft_seconds": null
   },
   "targets": [
@@ -43,7 +43,7 @@
     {
       "priority": "2. Primary Winner Metric",
       "metric": "pass_rate",
-      "value": 0.9565,
+      "value": 1.0,
       "target": 0.85,
       "passed": true,
       "description": "% de escenarios resueltos de principio a fin sin ningún fallo"
@@ -51,31 +51,64 @@
     {
       "priority": "3. Tie-Breaker",
       "metric": "first_pass_qa_approval_rate",
-      "value": 0.9545,
+      "value": 1.0,
       "target": 0.8,
       "passed": true,
       "description": "% de tickets aprobados por QA a la primera sin reintento"
     }
   ],
-  "comparisons": [],
+  "comparisons": [
+    {
+      "metric": "pass_rate",
+      "value": 1.0,
+      "baseline": 0.9565,
+      "delta": 0.0435,
+      "tolerance": 0.05,
+      "regressed": false
+    },
+    {
+      "metric": "escalation_accuracy",
+      "value": 1.0,
+      "baseline": 1.0,
+      "delta": 0.0,
+      "tolerance": 0.05,
+      "regressed": false
+    },
+    {
+      "metric": "first_pass_qa_approval_rate",
+      "value": 1.0,
+      "baseline": 0.9545,
+      "delta": 0.0455,
+      "tolerance": 0.05,
+      "regressed": false
+    },
+    {
+      "metric": "mean_qa_politica",
+      "value": 5.0,
+      "baseline": 5.0,
+      "delta": 0.0,
+      "tolerance": 0.25,
+      "regressed": false
+    }
+  ],
   "costs": [
     {
       "metric": "avg_tokens",
-      "value": 6956.2,
-      "baseline": null,
-      "delta_pct": null
+      "value": 6638.5,
+      "baseline": 6956.2,
+      "delta_pct": -4.6
     },
     {
       "metric": "avg_cost_usd",
-      "value": 0.001244,
-      "baseline": null,
-      "delta_pct": null
+      "value": 0.001187,
+      "baseline": 0.001244,
+      "delta_pct": -4.6
     },
     {
       "metric": "avg_latency_seconds",
-      "value": 8.68,
-      "baseline": null,
-      "delta_pct": null
+      "value": 7.46,
+      "baseline": 8.68,
+      "delta_pct": -14.1
     },
     {
       "metric": "avg_ttft_seconds",
@@ -84,12 +117,11 @@
       "delta_pct": null
     }
   ],
-  "failed_scenarios": {
-    "EVAL-010": [
-      "tool_trajectory_match"
-    ]
-  },
+  "failed_scenarios": {},
   "scenario_feedback": {
+    "EVAL-004": {
+      "manual_review": "3, 4"
+    },
     "EVAL-002": {
       "manual_review": "3"
     },
@@ -99,47 +131,43 @@
     "EVAL-001": {
       "manual_review": "4"
     },
-    "EVAL-004": {
-      "manual_review": "3, 4"
-    },
     "EVAL-005": {
-      "manual_review": "3, 4"
-    },
-    "EVAL-008": {
       "manual_review": "3, 4"
     },
     "EVAL-006": {
       "manual_review": "3, 4"
     },
-    "EVAL-007": {
-      "manual_review": "3"
+    "EVAL-008": {
+      "manual_review": "3, 4"
     },
-    "EVAL-010": {
-      "tool_trajectory_match": "recall=0.0",
+    "EVAL-007": {
       "manual_review": "3"
     },
     "EVAL-009": {
       "manual_review": "2"
     },
-    "EVAL-012": {
-      "manual_review": "1, 4"
+    "EVAL-010": {
+      "manual_review": "3"
     },
     "EVAL-011": {
       "manual_review": "2, 3"
     },
-    "EVAL-014": {
-      "manual_review": "3"
-    },
-    "EVAL-013": {
-      "manual_review": "1, 2"
+    "EVAL-012": {
+      "manual_review": "1, 4"
     },
     "EVAL-015": {
       "manual_review": "1, 2"
     },
-    "EVAL-017": {
-      "manual_review": "2, 3"
+    "EVAL-013": {
+      "manual_review": "1, 2"
+    },
+    "EVAL-014": {
+      "manual_review": "3"
     },
     "EVAL-016": {
+      "manual_review": "2, 3"
+    },
+    "EVAL-017": {
       "manual_review": "2, 3"
     },
     "EVAL-018": {
@@ -148,11 +176,11 @@
     "EVAL-019": {
       "manual_review": "3"
     },
-    "EVAL-023": {
-      "manual_review": "2, 3"
-    },
     "EVAL-021": {
       "manual_review": "4"
+    },
+    "EVAL-023": {
+      "manual_review": "2, 3"
     },
     "EVAL-022": {
       "manual_review": "3"
@@ -186,7 +214,7 @@
   "partial": false,
   "provenance": {
     "benchmark_fingerprint": "50f9b1fd05adcc6af3e890b49f1a352b61cd8535ad3dfb725a35d1c65c759734",
-    "source_fingerprint": "d2cf0aa5177c9a21ca2eac2564a9f1ae351b0051d2012de28e7e144bdec4ae0a",
+    "source_fingerprint": "a9cb4d51945048dff42630c241b661d3a106c09f2f08c490592e9c32024b9f43",
     "fixture_date": "2026-01-15",
     "models": {
       "triaje": {
@@ -236,6 +264,8 @@
       "NUM_PRODUCTOS": 25,
       "NUM_INCIDENCIAS": 5,
       "MAX_QA_RETRIES": 1
-    }
+    },
+    "dataset_name": "techstore-support-golden-v1",
+    "dataset_split": "dev"
   }
 }
