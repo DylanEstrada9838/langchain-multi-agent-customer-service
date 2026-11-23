@@ -3,24 +3,24 @@
   "targets_passed": true,
   "regression_passed": true,
   "baseline_found": false,
-  "experiment_name": "pipeline-mixed-b8d06fbe",
-  "experiment_url": "https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/843ec8af-32d9-4b9b-ad53-c5e7ebef2d15",
+  "experiment_name": "pipeline-v4-b73b3b94",
+  "experiment_url": "https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/11b4bdaa-0791-4706-ba7f-0146f195d3dc",
   "versions": {
     "triaje": "v4",
     "devoluciones": "v4",
     "soporte_tecnico": "v4",
     "consultas": "v4",
-    "qa": "v3"
+    "qa": "v4"
   },
   "total_examples": 23,
   "metrics": {
-    "pass_rate": 0.9565,
+    "pass_rate": 0.913,
     "escalation_accuracy": 1.0,
     "mean_qa_politica": 5.0,
     "first_pass_qa_approval_rate": 1.0,
-    "avg_tokens": 8892.1,
-    "avg_cost_usd": 0.00164,
-    "avg_latency_seconds": 12.07,
+    "avg_tokens": 8792.9,
+    "avg_cost_usd": 0.001542,
+    "avg_latency_seconds": 11.96,
     "avg_ttft_seconds": null
   },
   "targets": [
@@ -43,7 +43,7 @@
     {
       "priority": "2. Primary Winner Metric",
       "metric": "pass_rate",
-      "value": 0.9565,
+      "value": 0.913,
       "target": 0.85,
       "passed": true,
       "description": "% de escenarios resueltos de principio a fin sin ningún fallo"
@@ -61,19 +61,19 @@
   "costs": [
     {
       "metric": "avg_tokens",
-      "value": 8892.1,
+      "value": 8792.9,
       "baseline": null,
       "delta_pct": null
     },
     {
       "metric": "avg_cost_usd",
-      "value": 0.00164,
+      "value": 0.001542,
       "baseline": null,
       "delta_pct": null
     },
     {
       "metric": "avg_latency_seconds",
-      "value": 12.07,
+      "value": 11.96,
       "baseline": null,
       "delta_pct": null
     },
@@ -86,6 +86,9 @@
   ],
   "failed_scenarios": {
     "EVAL-004": [
+      "scenario_assertions"
+    ],
+    "EVAL-005": [
       "scenario_assertions"
     ]
   },
@@ -104,6 +107,7 @@
       "manual_review": "4"
     },
     "EVAL-005": {
+      "scenario_assertions": "Failed: reply_requires.3, reply_requires.4. Manual criteria: 3, 4.",
       "manual_review": "3, 4"
     },
     "EVAL-006": {
@@ -124,29 +128,29 @@
     "EVAL-011": {
       "manual_review": "2, 3"
     },
-    "EVAL-012": {
-      "manual_review": "1, 4"
-    },
-    "EVAL-015": {
-      "manual_review": "1, 2"
-    },
     "EVAL-013": {
       "manual_review": "1, 2"
+    },
+    "EVAL-012": {
+      "manual_review": "1, 4"
     },
     "EVAL-014": {
       "manual_review": "3"
     },
-    "EVAL-016": {
-      "manual_review": "2, 3"
+    "EVAL-015": {
+      "manual_review": "1, 2"
     },
     "EVAL-017": {
       "manual_review": "2, 3"
     },
-    "EVAL-019": {
-      "manual_review": "3"
+    "EVAL-016": {
+      "manual_review": "2, 3"
     },
     "EVAL-018": {
       "manual_review": "2"
+    },
+    "EVAL-019": {
+      "manual_review": "3"
     },
     "EVAL-023": {
       "manual_review": "2, 3"
@@ -185,8 +189,8 @@
   ],
   "partial": false,
   "provenance": {
-    "benchmark_fingerprint": "3c0e4a2cb480634f831cb9376827e9e1e894a20d507a9dce5badeb3d2729e846",
-    "source_fingerprint": "098b4486bb48c6c0dc45e252ef422c20532ac176b2f3212a06f57bc416e22a32",
+    "benchmark_fingerprint": "c5f866c52bc331d452e2c354a990b74b67778ae8a3ff0683643af9b669d1db57",
+    "source_fingerprint": "4a203c9a5e8d3bcaee656e6ffae1f3621bdd53f3ff5fe31f80fda790799b20eb",
     "fixture_date": "2026-01-15",
     "models": {
       "triaje": {
