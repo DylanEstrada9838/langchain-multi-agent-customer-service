@@ -3,6 +3,7 @@
 
 **LangSmith experiment:** [crm-v7-returns-v8-consultas-v9-2786dfe1](https://eu.smith.langchain.com/o/a8f6e0b2-95a9-47ca-98e0-92a88c918ce8/projects/p/99b30088-975a-4aab-bc94-6f81e8f0243a) (23 scenarios)
 **Evaluated versions:** `triaje:v7`, `devoluciones:v8`, `soporte_tecnico:v4`, `consultas:v9`, `qa:v4`
+**Promotion status:** This experiment is the active baseline.
 
 ### Absolute thresholds
 
@@ -13,9 +14,9 @@
 | 2. Primary Winner Metric | `pass_rate` | 95.7% | ≥ 85.0% | ✅ |
 | 3. Tie-Breaker | `first_pass_qa_approval_rate` | 95.5% | ≥ 80.0% | ✅ |
 
-### Regression against baseline
+### Baseline comparison at run time
 
-_This run used the absolute thresholds because a compatible baseline was unavailable._
+_This run used the absolute thresholds. No compatible prior baseline was loaded for comparison._
 
 ### Cost and latency (informational)
 

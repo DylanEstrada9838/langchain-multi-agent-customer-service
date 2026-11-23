@@ -13,7 +13,7 @@ from src import config
 from src.agents import AGENT_BINDINGS, list_versions
 from src.data import init_db
 from src.data.sample_tickets import TICKETS
-from src.pipeline.eval_dataset import load_eval_dataset
+from src.pipeline.eval_dataset import load_eval_dataset, private_holdout_rows
 from src.pipeline.eval_provenance import benchmark_fingerprint
 from src.pipeline.langsmith_eval import run_langsmith_experiment, sync_dataset_to_langsmith
 from src.pipeline.quality_gate import BASELINE_PATH, evaluate_gate, load_baseline, render_markdown, save_baseline
@@ -36,6 +36,12 @@ def _parse_versions(args) -> dict[str, str]:
 
 
 def _validate_cli(args) -> None:
+    if args.holdout_file is not None:
+        if not (args.eval or args.sync_dataset):
+            raise ValueError("--holdout-file requires --eval or --sync-dataset.")
+        if args.category is not None or args.limit is not None or args.baseline or args.update_baseline:
+            raise ValueError("Holdout runs cannot use filters, compare against the development baseline, or update it.")
+        private_holdout_rows(args.holdout_file, args.dataset_name)
     if args.langsmith and not args.eval:
         raise ValueError("--langsmith requiere --eval.")
     if not args.eval and any((
@@ -60,7 +66,8 @@ def _validate_cli(args) -> None:
 
 def _report_paths(args, *, partial: bool) -> tuple[Path, Path]:
     canonical = config.ROOT / "data" / "latest_eval_report"
-    basename = config.OUTPUT_DIR / f"eval-smoke-{datetime.now():%Y%m%d-%H%M%S-%f}" if partial else canonical
+    prefix = "eval-holdout" if getattr(args, "holdout_file", None) is not None else "eval-smoke"
+    basename = config.OUTPUT_DIR / f"{prefix}-{datetime.now():%Y%m%d-%H%M%S-%f}" if partial else canonical
     md = Path(args.report_md) if args.report_md else basename.with_suffix(".md")
     structured = Path(args.report_json) if args.report_json else basename.with_suffix(".json")
     if md.resolve() == structured.resolve():
@@ -68,15 +75,16 @@ def _report_paths(args, *, partial: bool) -> tuple[Path, Path]:
     if partial:
         protected = {canonical.with_suffix(suffix).resolve() for suffix in (".md", ".json")}
         if {md.resolve(), structured.resolve()} & protected:
-            raise ValueError("Una evaluacion parcial no puede reemplazar los informes completos.")
+            raise ValueError("Filtered and holdout runs cannot overwrite the canonical development reports.")
     return md, structured
 
 
 def _run_langsmith_cli(args, console: Console, versions: dict[str, str]) -> int:
     partial = args.category is not None or args.limit is not None
+    holdout_path = getattr(args, "holdout_file", None)
     baseline_path = Path(args.baseline) if args.baseline else None
-    report_md_path, report_json_path = _report_paths(args, partial=partial)
-    baseline = None if partial else load_baseline(baseline_path)
+    report_md_path, report_json_path = _report_paths(args, partial=partial or holdout_path is not None)
+    baseline = None if partial or holdout_path is not None else load_baseline(baseline_path)
     if baseline is not None and baseline.get("benchmark_fingerprint") != benchmark_fingerprint():
         raise ValueError("Baseline incompatible con este benchmark. Usa --baseline con una ruta nueva.")
     if (baseline_path or BASELINE_PATH).resolve() in {report_md_path.resolve(), report_json_path.resolve()}:
@@ -89,6 +97,7 @@ def _run_langsmith_cli(args, console: Console, versions: dict[str, str]) -> int:
         limit=args.limit,
         max_concurrency=args.max_concurrency or 4,
         experiment_prefix=args.experiment_prefix,
+        holdout_path=holdout_path,
     )
 
     table = Table(title=f"Experimento {summary.experiment_name} (dataset: {summary.dataset_name})")
@@ -100,7 +109,6 @@ def _run_langsmith_cli(args, console: Console, versions: dict[str, str]) -> int:
     if summary.experiment_url:
         console.print(f"Experimento: {summary.experiment_url}")
 
-    baseline = load_baseline(Path(args.baseline) if args.baseline else None)
     report = evaluate_gate(
         summary.metrics,
         baseline=baseline,
@@ -114,16 +122,15 @@ def _run_langsmith_cli(args, console: Console, versions: dict[str, str]) -> int:
         partial=summary.partial,
         provenance=summary.provenance,
     )
-    markdown = render_markdown(report)
-
     # Guardar informe por defecto en data/latest_eval_report.* (o ruta personalizada)
-    report_md_path.parent.mkdir(parents=True, exist_ok=True)
-    report_md_path.write_text(markdown, encoding="utf-8")
-
     report_json_path.parent.mkdir(parents=True, exist_ok=True)
     report_json_path.write_text(
         json.dumps(report.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    updated_baseline = save_baseline(report, baseline_path) if args.update_baseline and report.passed else None
+    markdown = render_markdown(report, active_baseline=load_baseline())
+    report_md_path.parent.mkdir(parents=True, exist_ok=True)
+    report_md_path.write_text(markdown, encoding="utf-8")
     display = markdown.encode(console.encoding, errors="replace").decode(console.encoding)
     console.print(display, markup=False, highlight=False)
 
@@ -131,8 +138,7 @@ def _run_langsmith_cli(args, console: Console, versions: dict[str, str]) -> int:
         if not report.passed:
             console.print("[bold red]No se actualiza el baseline: el run no supera el Quality Gate.[/]")
             return 1
-        out = save_baseline(report, baseline_path)
-        console.print(f"[green]Baseline actualizado:[/] {out}")
+        console.print(f"[green]Baseline actualizado:[/] {updated_baseline}")
 
     if args.fail_on_gate and not report.passed:
         console.print("[bold red]QUALITY GATE FAILED[/]")
@@ -154,6 +160,7 @@ def main():
     ap.add_argument("--category", default=None, help="Filtrar eval_dataset por categoría (happy_path, edge_case, boundary_testing, tool_invocation)")
     ap.add_argument("--limit", type=int, default=None, help="Limitar número de escenarios de evaluación")
     ap.add_argument("--dataset-name", default=None, help="Nombre del Dataset en LangSmith (por defecto LANGSMITH_DATASET_NAME)")
+    ap.add_argument("--holdout-file", type=Path, help="Private holdout JSONL file. Requires a separate --dataset-name.")
     ap.add_argument("--langsmith", action="store_true", help="Con --eval: ejecuta el experimento en LangSmith (evaluators de código)")
     ap.add_argument("--max-concurrency", type=int, help="Escenarios en paralelo en el experimento LangSmith")
     ap.add_argument("--experiment-prefix", default=None, help="Prefijo del experimento LangSmith (p. ej. pr-12-ab12cd3)")
@@ -170,12 +177,12 @@ def main():
             if args.fail_on_gate or args.update_baseline or args.baseline:
                 raise ValueError("Los filtros no se pueden combinar con opciones de baseline o gate.")
             _report_paths(args, partial=True)
-    except ValueError as exc:
+    except (ValueError, OSError) as exc:
         ap.error(str(exc))
 
     console = Console()
     if args.sync_dataset:
-        res = sync_dataset_to_langsmith(dataset_name=args.dataset_name)
+        res = sync_dataset_to_langsmith(dataset_name=args.dataset_name, dataset_path=args.holdout_file)
         action_str = "Creado" if res.created else "Actualizado"
         console.print(
             f"[bold green]Dataset de LangSmith {action_str}:[/] [cyan]{res.dataset_name}[/] "

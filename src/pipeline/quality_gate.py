@@ -172,7 +172,10 @@ def evaluate_gate(
     provenance: dict[str, Any] | None = None,
 ) -> GateReport:
     """Aplica umbrales absolutos (`PIPELINE_QUALITY_TARGETS`) + regresión frente al baseline."""
-    targets_ok, targets = _evaluate_targets(PIPELINE_QUALITY_TARGETS, {key: value for key, value in metrics.items() if value is not None})
+    definitions = PIPELINE_QUALITY_TARGETS
+    if (provenance or {}).get("evaluation_stage") == "qa":
+        definitions = [target for target in definitions if target[1] == "pass_rate"]
+    targets_ok, targets = _evaluate_targets(definitions, {key: value for key, value in metrics.items() if value is not None})
     tol = {**REGRESSION_TOLERANCES, **(tolerances or {})}
     base_metrics = (baseline or {}).get("metrics") or {}
 
@@ -235,7 +238,7 @@ def _fmt(metric: str, val: float | None) -> str:
     return f"{val * 100:.1f}%"
 
 
-def render_markdown(report: GateReport) -> str:
+def render_markdown(report: GateReport, *, active_baseline: dict[str, Any] | None = None) -> str:
     """Informe en Markdown para el comentario de la PR y el resumen del job."""
     icon = "✅" if report.passed else "❌"
     lines = [
@@ -248,13 +251,24 @@ def render_markdown(report: GateReport) -> str:
         lines.append(f"**LangSmith experiment:** {link} ({report.total_examples} scenarios)")
     if report.versions:
         lines.append("**Evaluated versions:** " + ", ".join(f"`{k}:{v}`" for k, v in report.versions.items()))
+    if active_baseline and report.passed and not report.partial and report.experiment_name and (
+        active_baseline.get("experiment") == report.experiment_name
+        and active_baseline.get("versions") == report.versions
+        and active_baseline.get("metrics") == report.metrics
+        and active_baseline.get("benchmark_fingerprint") == report.provenance.get("benchmark_fingerprint")
+    ):
+        lines.append("**Promotion status:** This experiment is the active baseline.")
+    if dataset_name := report.provenance.get("dataset_name"):
+        lines.append(f"**Dataset:** `{dataset_name}` ({report.provenance['dataset_split']})")
+    if report.provenance.get("evaluation_stage") == "qa":
+        lines.append("**Evaluation stage:** QA only")
     lines += ["", "### Absolute thresholds", "", "| Priority | Metric | Result | Target | Status |", "|---|---|---:|---:|:---:|"]
     for t in report.targets:
         lines.append(
             f"| {t.priority} | `{t.metric}` | {_fmt(t.metric, t.value)} | ≥ {_fmt(t.metric, t.target)} | {'✅' if t.passed else '❌'} |"
         )
 
-    lines += ["", "### Regression against baseline", ""]
+    lines += ["", "### Baseline comparison at run time", ""]
     if report.partial:
         lines.append("_Partial diagnostic run._")
     elif report.comparisons:
@@ -266,7 +280,7 @@ def render_markdown(report: GateReport) -> str:
                 f"{sign}{c.delta:.4g} | ±{c.tolerance:g} | {'❌ regression' if c.regressed else '✅'} |"
             )
     else:
-        lines.append("_This run used the absolute thresholds because a compatible baseline was unavailable._")
+        lines.append("_This run used the absolute thresholds. No compatible prior baseline was loaded for comparison._")
 
     lines += ["", "### Cost and latency (informational)", "", "| Metric | Result | Baseline | Δ % |", "|---|---:|---:|---:|"]
     for c in report.costs:

@@ -25,3 +25,15 @@ def scenario_to_ticket(sc: dict[str, Any]) -> dict[str, Any]:
         "asunto": f"Eval {sc['id']} ({sc['category']})",
         "mensaje": sc["user_input"],
     }
+
+
+def private_holdout_rows(path: Path, dataset_name: str | None) -> list[dict[str, Any]]:
+    if not dataset_name or dataset_name == config.LANGSMITH_DATASET_NAME:
+        raise ValueError("The holdout requires a separate LangSmith dataset name.")
+    development = load_eval_dataset()
+    holdout = load_eval_dataset(path)
+    dev_ids = {row["id"] for row in development}
+    dev_messages = {" ".join(row["user_input"].casefold().split()) for row in development}
+    if any(row["id"] in dev_ids or " ".join(row["user_input"].casefold().split()) in dev_messages for row in holdout):
+        raise ValueError("Holdout scenario IDs and messages must be independent of the development set.")
+    return holdout

@@ -12,7 +12,7 @@ from src.agents import active_version, get_active_versions
 from src.data.repositories import evaluation_repository
 from src.pipeline import steps
 from src.pipeline.context import TicketContext, generar_contexto
-from src.pipeline.eval_dataset import load_eval_dataset, scenario_to_ticket
+from src.pipeline.eval_dataset import load_eval_dataset, private_holdout_rows, scenario_to_ticket
 from src.pipeline.eval_provenance import evaluation_provenance
 from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA
 from src.pipeline.scenario_checks import ScenarioChecks, check_scenario, check_tools
@@ -284,8 +284,9 @@ def qa_quality_gate(run: Any, example: Any) -> dict[str, Any]:
     if out.get("failed_stage"):
         return _result("qa_quality_gate", False, f"Execution failure: {out['failed_stage']}")
     if out.get("stage") == "qa":
-        ok = (out.get("qa") or {}).get("veredicto") == "rechazado"
-        return _result("qa_quality_gate", ok, "QA rejects the contradictory draft")
+        allowed = (_ref_of(example).get("assertions") or {}).get("qa_verdicts") or ["rechazado"]
+        verdict = (out.get("qa") or {}).get("veredicto")
+        return _result("qa_quality_gate", verdict in allowed, f"Expected one of {allowed}, got {verdict}")
     veredicto = (out.get("qa") or {}).get("veredicto")
     ok = veredicto is not None and (veredicto in ("aprobado", "reescrito") or bool(out.get("escalado_humano")))
     return _result("qa_quality_gate", ok, f"verdict={veredicto}")
@@ -442,14 +443,18 @@ def run_langsmith_experiment(
     experiment_prefix: str | None = None,
     client: Any = None,
     llm: Any = None,
+    holdout_path: Path | None = None,
 ) -> ExperimentSummary:
     """Ejecuta `langsmith.evaluate()` con el target del pipeline, evaluators de código y summary evaluators."""
     from langsmith import evaluate
 
     name = dataset_name or config.LANGSMITH_DATASET_NAME
+    if holdout_path is not None and (category is not None or limit is not None):
+        raise ValueError("Run the holdout in full, without category or limit filters.")
+    scenarios = private_holdout_rows(holdout_path, dataset_name) if holdout_path is not None else load_eval_dataset()
     ls_client = client or Client()
     examples = list(ls_client.list_examples(dataset_name=name))
-    validate_remote_examples(examples, load_eval_dataset(), name)
+    validate_remote_examples(examples, scenarios, name)
     if category:
         examples = [example for example in examples if example.inputs["category"] == category]
     examples.sort(key=lambda example: example.inputs["id"])
@@ -459,7 +464,10 @@ def run_langsmith_experiment(
         raise ValueError(f"El dataset '{name}' no tiene ejemplos para este filtro.")
 
     used_versions = {**get_active_versions(), **(versions or {})}
-    provenance = evaluation_provenance(used_versions)
+    provenance = evaluation_provenance(used_versions, dataset_path=holdout_path)
+    provenance.update(dataset_name=name, dataset_split="holdout" if holdout_path is not None else "dev")
+    if all((row.get("context") or {}).get("stage_under_test") == "qa" for row in scenarios):
+        provenance["evaluation_stage"] = "qa"
     ver_tag = "-".join(sorted(set(used_versions.values()))) if len(set(used_versions.values())) == 1 else "mixed"
     prefix = experiment_prefix or f"pipeline-{ver_tag}"
 

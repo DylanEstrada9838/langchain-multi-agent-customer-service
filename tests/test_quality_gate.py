@@ -83,6 +83,24 @@ def test_fila_con_excepcion_cuenta_como_fallo():
     assert m["avg_tokens"] is None
 
 
+def test_qa_only_gate_uses_scenario_pass_rate():
+    report = evaluate_gate({"pass_rate": 0.9}, provenance={"evaluation_stage": "qa"})
+    assert report.passed
+    assert [target.metric for target in report.targets] == ["pass_rate"]
+
+
+def test_promoted_report_preserves_the_run_time_comparison():
+    report = evaluate_gate(GOOD, experiment_name="promotion-run", versions={"qa": "v4"},
+                           provenance={"benchmark_fingerprint": "benchmark"})
+    active = {"experiment": report.experiment_name, "versions": report.versions, "metrics": report.metrics,
+              "benchmark_fingerprint": "benchmark"}
+    markdown = render_markdown(report, active_baseline=active)
+    assert "This experiment is the active baseline" in markdown
+    assert "No compatible prior baseline was loaded" in markdown
+    assert "This experiment is the active baseline" not in render_markdown(report, active_baseline={**active, "experiment": "different"})
+    assert "This experiment is the active baseline" not in render_markdown(report, active_baseline={**active, "benchmark_fingerprint": "different"})
+
+
 def test_incomplete_provider_usage_does_not_publish_a_partial_token_average():
     row = _row("A", tokens=100, cost=None)
     row["outputs"]["token_usage_complete"] = False
