@@ -10,7 +10,7 @@ from src import config
 
 BASELINE_PATH = config.ROOT / "data" / "baseline_pipeline.json"
 
-# Métricas "más es mejor" comparadas contra el baseline: (tolerancia absoluta permitida)
+# Metrics "más es mejor" comparadas contra el baseline: (tolerancia absoluta permitida)
 # Con 23 escenarios, 1 escenario ~ 0.043: la tolerancia de 0.05 absorbe un fallo aislado por variabilidad del LLM.
 REGRESSION_TOLERANCES: dict[str, float] = {
     "pass_rate": 0.05,
@@ -18,7 +18,7 @@ REGRESSION_TOLERANCES: dict[str, float] = {
     "first_pass_qa_approval_rate": 0.05,
     "mean_qa_politica": 0.25,
 }
-# Métricas "menos es mejor": solo se reportan (no bloquean el gate).
+# Metrics "menos es mejor": solo se reportan (no bloquean el gate).
 COST_METRICS = ("avg_tokens", "avg_cost_usd", "avg_latency_seconds", "avg_ttft_seconds")
 
 
@@ -245,37 +245,37 @@ def render_markdown(report: GateReport) -> str:
     ]
     if report.experiment_name:
         link = f"[{report.experiment_name}]({report.experiment_url})" if report.experiment_url else report.experiment_name
-        lines.append(f"**Experimento LangSmith:** {link} ({report.total_examples} escenarios)")
+        lines.append(f"**LangSmith experiment:** {link} ({report.total_examples} scenarios)")
     if report.versions:
-        lines.append("**Versiones evaluadas:** " + ", ".join(f"`{k}:{v}`" for k, v in report.versions.items()))
-    lines += ["", "### Umbrales absolutos", "", "| Prioridad | Métrica | Resultado | Target | Estado |", "|---|---|---:|---:|:---:|"]
+        lines.append("**Evaluated versions:** " + ", ".join(f"`{k}:{v}`" for k, v in report.versions.items()))
+    lines += ["", "### Absolute thresholds", "", "| Priority | Metric | Result | Target | Status |", "|---|---|---:|---:|:---:|"]
     for t in report.targets:
         lines.append(
             f"| {t.priority} | `{t.metric}` | {_fmt(t.metric, t.value)} | ≥ {_fmt(t.metric, t.target)} | {'✅' if t.passed else '❌'} |"
         )
 
-    lines += ["", "### Regresión vs baseline", ""]
+    lines += ["", "### Regression against baseline", ""]
     if report.partial:
-        lines.append("_Ejecucion parcial de diagnostico._")
+        lines.append("_Partial diagnostic run._")
     elif report.comparisons:
-        lines += ["| Métrica | Resultado | Baseline | Δ | Tolerancia | Estado |", "|---|---:|---:|---:|---:|:---:|"]
+        lines += ["| Metric | Result | Baseline | Δ | Tolerance | Status |", "|---|---:|---:|---:|---:|:---:|"]
         for c in report.comparisons:
             sign = "+" if c.delta > 0 else ""
             lines.append(
                 f"| `{c.metric}` | {_fmt(c.metric, c.value)} | {_fmt(c.metric, c.baseline)} | "
-                f"{sign}{c.delta:.4g} | ±{c.tolerance:g} | {'❌ regresión' if c.regressed else '✅'} |"
+                f"{sign}{c.delta:.4g} | ±{c.tolerance:g} | {'❌ regression' if c.regressed else '✅'} |"
             )
     else:
-        lines.append("_No se encontró baseline: solo se aplican los umbrales absolutos._")
+        lines.append("_This run used the absolute thresholds because a compatible baseline was unavailable._")
 
-    lines += ["", "### Coste y latencia (informativo, no bloquea)", "", "| Métrica | Resultado | Baseline | Δ % |", "|---|---:|---:|---:|"]
+    lines += ["", "### Cost and latency (informational)", "", "| Metric | Result | Baseline | Δ % |", "|---|---:|---:|---:|"]
     for c in report.costs:
         base = _fmt(c.metric, c.baseline) if c.baseline is not None else "-"
         delta = f"{'+' if c.delta_pct > 0 else ''}{c.delta_pct}%" if c.delta_pct is not None else "-"
         lines.append(f"| `{c.metric}` | {_fmt(c.metric, c.value)} | {base} | {delta} |")
 
     if report.failed_scenarios:
-        lines += ["", "### Escenarios con fallos", ""]
+        lines += ["", "### Failed scenarios", ""]
         for sid, checks in report.failed_scenarios.items():
             lines.append(f"- `{sid}`: {', '.join(checks)}")
             for check in checks:
@@ -284,7 +284,7 @@ def render_markdown(report: GateReport) -> str:
 
     manual = {sid: feedback["manual_review"] for sid, feedback in report.scenario_feedback.items() if "manual_review" in feedback}
     if manual:
-        lines += ["", "### Criterios de revision manual (fuera de la puntuacion automatica)", ""]
+        lines += ["", "### Manual review criteria (outside automated scoring)", ""]
         lines.extend(f"- `{sid}`: {criteria}" for sid, criteria in manual.items())
 
     return "\n".join(lines) + "\n"

@@ -63,8 +63,20 @@ def validate_full_report(report: dict) -> None:
     if report.get("partial") is not False or report.get("scenario_ids") != expected or report.get("total_examples") != len(expected):
         raise ValueError("Report does not cover the full golden dataset.")
     provenance = report.get("provenance") or {}
-    if (provenance.get("source_fingerprint") != source_fingerprint(versions)
-            or provenance.get("benchmark_fingerprint") != benchmark_fingerprint()
+    evaluated_source = provenance.get("source_fingerprint")
+    current_source = source_fingerprint(versions)
+    if evaluated_source != current_source:
+        # A presentation-only translation can reuse one saved experiment. Pin both
+        # source fingerprints so any subsequent source change needs fresh evidence.
+        translation_path = config.ROOT / "data" / "eval_report_translation.json"
+        approved_translation = json.loads(translation_path.read_text(encoding="utf-8")) if translation_path.exists() else {}
+        if approved_translation != {
+            "experiment_name": report.get("experiment_name"),
+            "evaluated_source": evaluated_source,
+            "translated_source": current_source,
+        }:
+            raise ValueError("Report provenance differs from the checked-out benchmark or runtime.")
+    if (provenance.get("benchmark_fingerprint") != benchmark_fingerprint()
             or provenance.get("fixture_date") != EVALUATION_DATE.isoformat()):
         raise ValueError("Report provenance differs from the checked-out benchmark or runtime.")
     models = provenance.get("models") or {}

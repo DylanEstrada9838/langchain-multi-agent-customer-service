@@ -87,7 +87,7 @@ jobs:
             if (fs.existsSync('data/latest_eval_report.md')) {
               body = fs.readFileSync('data/latest_eval_report.md', 'utf8');
             } else {
-              body = `${marker}\n## ⚠️ Eval Quality Gate — sin informe\n\nNo se encontró \`data/latest_eval_report.md\`. Ejecuta el benchmark LangSmith (\`python main.py --eval --fail-on-gate\`) y haz commit del informe.\n`;
+              body = `${marker}\n## ⚠️ Eval Quality Gate — report missing\n\nRun the LangSmith benchmark (\`python main.py --eval --fail-on-gate\`) and commit the generated report at \`data/latest_eval_report.md\`.\n`;
             }
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;

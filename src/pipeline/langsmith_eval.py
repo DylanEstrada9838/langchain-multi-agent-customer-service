@@ -224,7 +224,7 @@ def _ref_of(example: Any) -> dict[str, Any]:
 
 def _result(key: str, ok: bool | None, comment: str = "") -> dict[str, Any]:
     if ok is None:
-        return {"key": key, "score": None, "comment": comment or "n/a (escenario de etapa QA)"}
+        return {"key": key, "score": None, "comment": comment or "n/a (QA-only scenario)"}
     return {"key": key, "score": int(ok), "comment": comment}
 
 
@@ -233,7 +233,7 @@ def categoria_match(run: Any, example: Any) -> dict[str, Any]:
     if out.get("stage") == "qa":
         return _result("categoria_match", None)
     exp = ref["expected_routing"]["categoria"]
-    return _result("categoria_match", out.get("categoria") == exp, f"esperado={exp} real={out.get('categoria')}")
+    return _result("categoria_match", out.get("categoria") == exp, f"expected={exp} actual={out.get('categoria')}")
 
 
 def especialista_match(run: Any, example: Any) -> dict[str, Any]:
@@ -241,7 +241,7 @@ def especialista_match(run: Any, example: Any) -> dict[str, Any]:
     if out.get("stage") == "qa":
         return _result("especialista_match", None)
     exp = ref["expected_routing"]["especialista"]
-    return _result("especialista_match", out.get("especialista") == exp, f"esperado={exp} real={out.get('especialista')}")
+    return _result("especialista_match", out.get("especialista") == exp, f"expected={exp} actual={out.get('especialista')}")
 
 
 def escalado_match(run: Any, example: Any) -> dict[str, Any]:
@@ -249,14 +249,14 @@ def escalado_match(run: Any, example: Any) -> dict[str, Any]:
     if out.get("stage") == "qa":
         return _result("escalado_match", None)
     exp = ref["expected_routing"]["escalado_humano"]
-    return _result("escalado_match", out.get("escalado_humano") == exp, f"esperado={exp} real={out.get('escalado_humano')}")
+    return _result("escalado_match", out.get("escalado_humano") == exp, f"expected={exp} actual={out.get('escalado_humano')}")
 
 
 def tool_trajectory_match(run: Any, example: Any) -> dict[str, Any]:
     out, ref = _outputs_of(run), _ref_of(example)
     if out.get("stage") == "qa":
         ok = out.get("tool_calls") == []
-        return _result("tool_trajectory_match", ok, "QA no debe llamar herramientas")
+        return _result("tool_trajectory_match", ok, "QA must make no tool calls")
     actual = [ToolCallTrace(**tc) for tc in out.get("tool_calls", [])]
     rules = ScenarioChecks.model_validate(ref.get("assertions") or {})
     snapshot_agents = set(out.get("customer_snapshot_agents") or [])
@@ -282,13 +282,13 @@ def tool_trajectory_match(run: Any, example: Any) -> dict[str, Any]:
 def qa_quality_gate(run: Any, example: Any) -> dict[str, Any]:
     out = _outputs_of(run)
     if out.get("failed_stage"):
-        return _result("qa_quality_gate", False, f"Fallo de ejecucion: {out['failed_stage']}")
+        return _result("qa_quality_gate", False, f"Execution failure: {out['failed_stage']}")
     if out.get("stage") == "qa":
         ok = (out.get("qa") or {}).get("veredicto") == "rechazado"
-        return _result("qa_quality_gate", ok, "QA rechaza borrador contradictorio")
+        return _result("qa_quality_gate", ok, "QA rejects the contradictory draft")
     veredicto = (out.get("qa") or {}).get("veredicto")
     ok = veredicto is not None and (veredicto in ("aprobado", "reescrito") or bool(out.get("escalado_humano")))
-    return _result("qa_quality_gate", ok, f"veredicto={veredicto}")
+    return _result("qa_quality_gate", ok, f"verdict={veredicto}")
 
 
 def scenario_assertions(run: Any, example: Any) -> dict[str, Any]:
@@ -336,7 +336,7 @@ def _pair_to_row(outputs, example_inputs, example_outputs, *, feedback=None) -> 
     stage = "qa" if (example_inputs.get("context") or {}).get("stage_under_test") == "qa" else "pipeline"
     outputs = outputs or {}
     if not outputs:
-        checks = {key: {"score": 0, "comment": "El escenario no devolvio resultados."} for key in _CODE_KEYS}
+        checks = {key: {"score": 0, "comment": "The scenario returned no results."} for key in _CODE_KEYS}
     elif feedback is None:
         run_like, ref_like = {"outputs": outputs}, {"outputs": example_outputs}
         checks = {ev.__name__: ev(run_like, ref_like) for ev in CODE_EVALUATORS}
@@ -346,7 +346,7 @@ def _pair_to_row(outputs, example_inputs, example_outputs, *, feedback=None) -> 
     comments = {}
     scores = {}
     for key in _CODE_KEYS:
-        check = checks.get(key, {"score": 0, "comment": "No se recibio feedback del evaluador."})
+        check = checks.get(key, {"score": 0, "comment": "The evaluator returned no feedback."})
         score = check["score"]
         not_applicable = stage == "qa" and key in {"categoria_match", "especialista_match", "escalado_match"}
         optional_assertions = key == "scenario_assertions" and "assertions" not in example_outputs
