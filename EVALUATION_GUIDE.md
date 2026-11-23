@@ -92,6 +92,7 @@ Open a pull request to `main` for each baseline promotion so the evidence and de
 3. Archive the snapshot under [data/baselines](data/baselines) and index it in the [baseline history](AGENT_IMPROVEMENTS_HISTORY.md#4-baseline-history).
 4. Push the promotion branch and open a pull request. Include the evaluated version mix, the LangSmith experiment, the scenario and escalation results, any failures or manual checks, and whether the new benchmark is comparable with the previous baseline.
 5. Wait for the [evaluation workflow](.github/workflows/eval-gate.yml) before merging. It runs the unit tests, validates the saved report against the checked-out dataset and source, and posts the report on the pull request. It makes no live model calls.
+6. If the candidate changed the golden examples and was evaluated on a separate dataset, synchronize the configured LangSmith dataset from the merged revision. The candidate dataset preserves the evidence for the promotion run.
 
 ---
 
@@ -111,7 +112,7 @@ The system grades versions against a **3-tier decision hierarchy** rather than t
 ### 5.2 Cost & Performance Metrics (Informative Tracking)
 These metrics are compared against [data/baseline_pipeline.json](data/baseline_pipeline.json) showing percentage delta ($\Delta \%$), but do not block the gate:
 * **`avg_cost_usd`**: Estimated cost from the reported model and measured input/output tokens. The metric is unavailable when pricing or usage is missing.
-* **`avg_tokens`**: Average total tokens consumed per ticket.
+* **`avg_tokens`**: Average total tokens consumed per ticket, including failed calls when the provider reports their usage. The average is unavailable if usage is incomplete.
 * **`avg_latency_seconds`**: End-to-end elapsed time per ticket.
 * **`avg_ttft_seconds`**: Unavailable while agents use non-streaming invocations.
 

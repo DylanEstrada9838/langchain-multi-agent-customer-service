@@ -3,8 +3,8 @@
 # workflow de CI (`eval-gate`) evalúan exactamente este conjunto.
 # Para promocionar un experimento (p. ej. `triaje/v4.yaml`) cambia la entrada correspondiente
 # en una Pull Request: el gate evalúa el candidato y, al hacer merge, queda promocionado.
-triaje: v4
-devoluciones: v4
+triaje: v7
+devoluciones: v8
 soporte_tecnico: v4
-consultas: v4
+consultas: v9
 qa: v4

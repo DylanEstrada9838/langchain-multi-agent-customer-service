@@ -76,6 +76,13 @@ to the original 1-based order of `pass_fail_criteria` in the scenario.
 The matcher consumes each expected call once and checks its agent, tool, and declared
 arguments. Free-form search queries and return reasons allow agent-generated wording.
 Ordering is enabled for scenarios with an explicitly sequenced return workflow.
+For versions that load a customer snapshot in Python, the benchmark checks that
+the lookup completed and the classification uses the expected verified tier.
+Those versions skip the redundant CRM tool call. Snapshot-based triage must use
+the scoped latest-order tool for `EVAL-007` and `EVAL-023` and omit it in cases
+that do not ask about the latest purchase. Other tool expectations, ownership
+checks, and response assertions still apply.
+
 The no-RMA assertion checks that the RMA creation tool was never invoked. That tool
 is the pipeline's RMA write path. Successful RMA assertions use the persisted ID and
 URL returned by that tool.

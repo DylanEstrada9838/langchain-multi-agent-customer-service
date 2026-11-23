@@ -24,7 +24,7 @@ from src.tools import (
 )
 
 
-def invoke_scoped(tool, args, customer_id="C900"):
+def invoke_scoped(tool, args, customer_id="C900", *, latest_order_allowed=True):
     graph = StateGraph(MessagesState, context_schema=TicketContext)
     graph.add_node("tools", ToolNode([tool]))
     graph.add_edge(START, "tools")
@@ -32,7 +32,7 @@ def invoke_scoped(tool, args, customer_id="C900"):
         {"messages": [AIMessage(content="", tool_calls=[
             {"name": tool.name, "args": args, "id": "test-call"}
         ])]},
-        context=TicketContext(customer_id),
+        context=TicketContext(customer_id, latest_order_allowed=latest_order_allowed),
     )
     return json.loads(result["messages"][-1].content)
 
@@ -72,6 +72,17 @@ def test_kb_e_incidencias():
     assert r["resultados"][0]["id"] == "KB-001"
     inc = json.loads(verificar_incidencias.invoke({"tipo": "caida_servicio"}))
     assert inc["incidencias_activas"][0]["id"] == "INC-001"
+
+
+def test_latest_order_lookup_uses_runtime_customer_and_returns_minimal_fields():
+    from src.tools.crm import consultar_ultimo_pedido
+
+    order = invoke_scoped(consultar_ultimo_pedido, {}, "C900")["ultimo_pedido"]
+    assert order["pedido_id"] == "P9001"
+    assert set(order) == {"pedido_id", "estado_envio", "productos"}
+    assert invoke_scoped(consultar_ultimo_pedido, {}, "C906") == {"ultimo_pedido": None}
+    assert "error" in invoke_scoped(consultar_ultimo_pedido, {}, latest_order_allowed=False)
+    assert "Acceso denegado" in json.loads(consultar_ultimo_pedido.invoke({}))["error"]
 
 
 def test_kb_excludes_articles_without_the_reported_error_code():

@@ -17,7 +17,9 @@ _INSTR = {
 }
 
 
-def paso_triaje(ctx: str) -> str:
+def paso_triaje(ctx: str, *, consultar_crm: bool = True) -> str:
+    if not consultar_crm:
+        return f"{ctx}\n\nClasifica el ticket con el segmento verificado y devuelve la clasificación estructurada."
     return (
         f"{ctx}\n\nPASO 1 (Triaje): consulta al cliente, clasifica el ticket (categoría y prioridad) "
         "y devuelve la clasificación estructurada."

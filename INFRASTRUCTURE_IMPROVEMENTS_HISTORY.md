@@ -79,6 +79,7 @@ Built [src/pipeline/quality_gate.py](src/pipeline/quality_gate.py) to programmat
   - Promote new baseline: `python main.py --eval --update-baseline`
 
 ### 3.3 Financial Cost & TTFT Latency Telemetry
+- **Failed model calls**: Token totals and estimated cost include provider-reported usage from failed calls. The benchmark leaves the token average unavailable when a call's usage is missing.
 - **Model Pricing Engine**: Created [src/llm/pricing.py](src/llm/pricing.py) computing real-time dollar cost per ticket across prompt and completion tokens (e.g., `gemini-1.5-flash`: \$0.075 / 1M prompt, \$0.30 / 1M completion).
 - **Time to First Token (TTFT)**: Instrumented `avg_ttft_seconds` measuring pre-streaming elapsed latency until model output begins.
 - **Reporting Integration**: Wired `avg_cost_usd` and `avg_ttft_seconds` directly into `SUMMARY_METRICS`, `COST_METRICS`, CLI logs, and `GateReport`.
