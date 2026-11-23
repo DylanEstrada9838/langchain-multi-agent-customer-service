@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from langsmith import Client
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from src import config
 from src.agents import active_version, get_active_versions
@@ -18,6 +18,7 @@ from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, Evaluaci
 from src.pipeline.scenario_checks import ScenarioChecks, check_scenario, check_tools
 from src.pipeline.quality_gate import compute_pipeline_metrics
 from src.pipeline.orchestrator import (
+    AgentRunError,
     SistemaMultiagente,
     ToolCallTrace,
     _run,
@@ -155,17 +156,27 @@ def make_pipeline_target(
             )
             draft = BorradorRespuesta.model_validate(sc["context"]["specialist_draft_override"])
             qa_ver = sys_instance.versiones.get("qa") or active_version("qa")
-            assessment, metrics = _run(
-                sys_instance.qa,
-                steps.paso_qa(generar_contexto(ticket), classification, draft),
-                context=TicketContext(ticket["cliente_id"]), agent_name="qa", version=qa_ver,
-            )
-            qa = EvaluacionQA.model_validate(assessment)
+            qa = None
+            try:
+                assessment, metrics = _run(
+                    sys_instance.qa,
+                    steps.paso_qa(generar_contexto(ticket), classification, draft),
+                    context=TicketContext(ticket["cliente_id"]), agent_name="qa", version=qa_ver,
+                )
+            except AgentRunError as exc:
+                metrics = exc.metrics
+            else:
+                try:
+                    qa = EvaluacionQA.model_validate(assessment)
+                except ValidationError:
+                    pass
             return {
                 "stage": "qa",
-                "qa": qa.model_dump(),
+                "qa": qa.model_dump() if qa is not None else None,
+                "failed_stage": "qa" if qa is None else None,
                 "tool_calls": [call.model_dump() for call in metrics.tool_calls],
                 "total_tokens": metrics.total_tokens,
+                "token_usage_complete": metrics.token_usage_complete,
                 "cost_usd": metrics.cost_usd,
                 "ttft_seconds": None,
                 "segundos": metrics.segundos,
@@ -187,7 +198,10 @@ def make_pipeline_target(
             "respuesta_final": res.respuesta_final,
             "tool_calls": [tc.model_dump() for tc in res.tool_calls],
             "versiones_agentes": res.versiones_agentes,
+            "customer_snapshot_agents": sorted(sys_instance.snapshot_agents),
+            "customer_snapshot_loaded": res.customer_snapshot_loaded,
             "total_tokens": res.total_tokens,
+            "token_usage_complete": res.token_usage_complete,
             "cost_usd": res.cost_usd,
             "ttft_seconds": res.ttft_seconds,
             "segundos": res.segundos,
@@ -245,17 +259,33 @@ def tool_trajectory_match(run: Any, example: Any) -> dict[str, Any]:
         return _result("tool_trajectory_match", ok, "QA no debe llamar herramientas")
     actual = [ToolCallTrace(**tc) for tc in out.get("tool_calls", [])]
     rules = ScenarioChecks.model_validate(ref.get("assertions") or {})
-    ok, recall = check_tools(ref.get("expected_tool_calls", []), actual, ordered=rules.ordered_tools)
-    return _result("tool_trajectory_match", ok, f"recall={recall}")
+    snapshot_agents = set(out.get("customer_snapshot_agents") or [])
+    expected = ref.get("expected_tool_calls", [])
+    latest_order_expected = "triaje" in snapshot_agents and rules.latest_order_lookup
+    if snapshot_agents and isinstance(expected, list):
+        expected = [
+            call for call in expected
+            if not (call["tool"] == "consultar_cliente" and call["agent"] in snapshot_agents)
+        ]
+        if latest_order_expected:
+            expected = [{"agent": "triaje", "tool": "consultar_ultimo_pedido"}, *expected]
+    ok, recall = check_tools(expected, actual, ordered=rules.ordered_tools)
+    unexpected = [
+        f"{call.agent}.{call.tool}" for call in actual
+        if (call.tool == "consultar_cliente" and call.agent in snapshot_agents)
+        or (call.tool == "consultar_ultimo_pedido" and not latest_order_expected)
+    ]
+    detail = f"; unexpected={', '.join(unexpected)}" if unexpected else ""
+    return _result("tool_trajectory_match", ok and not unexpected, f"recall={recall}{detail}")
 
 
 def qa_quality_gate(run: Any, example: Any) -> dict[str, Any]:
     out = _outputs_of(run)
+    if out.get("failed_stage"):
+        return _result("qa_quality_gate", False, f"Fallo de ejecucion: {out['failed_stage']}")
     if out.get("stage") == "qa":
         ok = (out.get("qa") or {}).get("veredicto") == "rechazado"
         return _result("qa_quality_gate", ok, "QA rechaza borrador contradictorio")
-    if out.get("failed_stage"):
-        return _result("qa_quality_gate", False, f"Fallo de ejecucion: {out['failed_stage']}")
     veredicto = (out.get("qa") or {}).get("veredicto")
     ok = veredicto is not None and (veredicto in ("aprobado", "reescrito") or bool(out.get("escalado_humano")))
     return _result("qa_quality_gate", ok, f"veredicto={veredicto}")
@@ -275,6 +305,11 @@ def scenario_assertions(run: Any, example: Any) -> dict[str, Any]:
         reply=out.get("respuesta_final") or "",
         calls=[ToolCallTrace(**call) for call in out.get("tool_calls", [])],
     )
+    if out.get("customer_snapshot_agents"):
+        checks["customer_snapshot_loaded"] = out.get("customer_snapshot_loaded") is True
+        expected_tier = (ref.get("expected_routing") or {}).get("segmento_cliente")
+        observed_tier = (out.get("clasificacion") or {}).get("segmento_cliente")
+        checks["verified_customer_tier"] = expected_tier is not None and observed_tier == expected_tier
     failed = ", ".join(key for key, ok in checks.items() if not ok) or "none"
     manual = ", ".join(str(index) for index in rules.manual_criteria) or "none"
     return _result("scenario_assertions", all(checks.values()), f"Failed: {failed}. Manual criteria: {manual}.")

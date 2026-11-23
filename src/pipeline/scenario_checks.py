@@ -19,6 +19,7 @@ class ScenarioChecks(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ordered_tools: bool = False
+    latest_order_lookup: bool = False
     forbidden_tools: list[str] = Field(default_factory=list)
     classification: dict[str, Any] = Field(default_factory=dict)
     specialist_escalation: bool | None = None

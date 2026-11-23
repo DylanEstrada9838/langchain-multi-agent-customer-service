@@ -112,7 +112,8 @@ def compute_pipeline_metrics(rows: list[dict[str, Any]]) -> dict[str, float | No
         if (r.get("outputs") or {}).get("intentos_qa") == 1
         and ((r["outputs"].get("qa") or {}).get("veredicto") in ("aprobado", "reescrito"))
     )
-    tokens = sum((r.get("outputs") or {}).get("total_tokens", 0) for r in rows)
+    token_usage_complete = all((row.get("outputs") or {}).get("token_usage_complete", True) for row in rows)
+
     def average_observed(key: str, digits: int) -> float | None:
         values = [(row.get("outputs") or {}).get(key) for row in rows]
         if not values or None in values:
@@ -125,7 +126,7 @@ def compute_pipeline_metrics(rows: list[dict[str, Any]]) -> dict[str, float | No
         "escalation_accuracy": round(esc_hits / n_e2e, 4),
         "mean_qa_politica": round(sum(politica) / max(len(politica), 1), 2),
         "first_pass_qa_approval_rate": round(first_pass / n_e2e, 4),
-        "avg_tokens": round(tokens / n_all, 1),
+        "avg_tokens": average_observed("total_tokens", 1) if token_usage_complete else None,
         "avg_cost_usd": average_observed("cost_usd", 6),
         "avg_latency_seconds": average_observed("segundos", 2),
         "avg_ttft_seconds": average_observed("ttft_seconds", 2),

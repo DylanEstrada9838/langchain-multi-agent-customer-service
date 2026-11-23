@@ -80,6 +80,14 @@ def test_fila_con_excepcion_cuenta_como_fallo():
     row = {"scenario_id": "X", "stage": "pipeline", "scores": {"categoria_match": 0, "escalado_match": 0}, "outputs": {}}
     m = compute_pipeline_metrics([row, _row("A")])
     assert m["pass_rate"] == 0.5 and m["escalation_accuracy"] == 0.5
+    assert m["avg_tokens"] is None
+
+
+def test_incomplete_provider_usage_does_not_publish_a_partial_token_average():
+    row = _row("A", tokens=100, cost=None)
+    row["outputs"]["token_usage_complete"] = False
+    metrics = compute_pipeline_metrics([row, _row("B", tokens=200)])
+    assert metrics["avg_tokens"] is None and metrics["avg_cost_usd"] is None
 
 
 def test_gate_pasa_con_el_baseline():

@@ -16,12 +16,14 @@ class Stub:
         self.calls = 0
         self.prompts: list[str] = []
         self.customer_ids: list[str] = []
+        self.contexts = []
         self._tool_calls = tool_calls or []
         self._tokens = tokens
         self._tool_results = tool_results
 
     def invoke(self, payload, **_k):
         self.customer_ids.append(_k["context"].cliente_id)
+        self.contexts.append(_k["context"])
         self.prompts.append(payload["messages"][0]["content"])
         idx = min(self.calls, len(self._responses) - 1)
         self.calls += 1
@@ -348,8 +350,8 @@ def test_incomplete_qa_escalates_without_releasing_text():
     ("failed_stage", "expected_agents", "qa_attempts"),
     [
         ("context", [], 0),
-        ("specialist", ["triaje"], 0),
-        ("specialist_retry", ["triaje", "consultas", "qa"], 1),
+        ("specialist", ["triaje", "consultas"], 0),
+        ("specialist_retry", ["triaje", "consultas", "qa", "consultas"], 1),
     ],
 )
 def test_processing_failure_retains_ticket(monkeypatch, failed_stage, expected_agents, qa_attempts):
@@ -384,6 +386,7 @@ def test_processing_failure_retains_ticket(monkeypatch, failed_stage, expected_a
     assert result.escalado_humano
     assert result.intentos_qa == qa_attempts
     assert [metric.agent for metric in result.metricas_agentes] == expected_agents
+    assert result.token_usage_complete is (failed_stage == "context")
     assert (result.clasificacion is None) == (failed_stage == "context")
     assert "especialista humano" in result.respuesta_final
     assert "private error details" not in result.respuesta_final
@@ -391,6 +394,63 @@ def test_processing_failure_retains_ticket(monkeypatch, failed_stage, expected_a
     assert (result.borrador is not None) == (failed_stage == "specialist_retry")
     assert result.qa == (rejected if failed_stage == "specialist_retry" else None)
     assert qa_quality_gate({"outputs": result.model_dump()}, {})["score"] == 0
+
+
+@pytest.mark.parametrize("qa_only", [False, True])
+def test_truncated_agent_counts_earlier_and_failed_model_calls(monkeypatch, qa_only):
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    from langgraph.graph import START, MessagesState, StateGraph
+    from openai import LengthFinishReasonError
+    from openai.types.chat import ChatCompletion
+
+    from src.pipeline.context import TicketContext
+    from src.pipeline.langsmith_eval import make_pipeline_target, qa_quality_gate
+
+    truncated = LengthFinishReasonError(completion=ChatCompletion(
+        id="test", choices=[], created=0, model="gpt-4o-mini", object="chat.completion",
+        usage={"prompt_tokens": 1800, "completion_tokens": 1500, "total_tokens": 3300},
+    ))
+    model = FakeMessagesListChatModel(responses=[], cache=False)
+    earlier = AIMessage(content="ok", usage_metadata={"input_tokens": 100, "output_tokens": 20, "total_tokens": 120})
+
+    def generate(_model, messages, **kwargs):
+        if messages[0].content == "call that completes":
+            return ChatResult(generations=[ChatGeneration(message=earlier)], llm_output={"model_name": "gpt-4o-mini"})
+        raise truncated
+
+    monkeypatch.setattr(type(model), "_generate", generate)
+    system = _sistema("consulta")
+
+    def call_model(_state):
+        model.invoke("call that completes")
+        model.invoke("call that truncates")
+
+    graph = StateGraph(MessagesState, context_schema=TicketContext)
+    graph.add_node("model", call_model)
+    graph.add_edge(START, "model")
+    agent = graph.compile()
+    if qa_only:
+        system.qa = agent
+        scenario = next(row for row in load_eval_dataset() if row["context"].get("stage_under_test") == "qa")
+        example = scenario_to_langsmith_example(scenario, "test-dataset")
+        output = make_pipeline_target(system)(example["inputs"])
+        assert output["failed_stage"] == "qa" and output["qa"] is None
+        assert output["token_usage_complete"] and output["total_tokens"] == 3420
+        assert output["cost_usd"] == pytest.approx(0.001197)
+        assert qa_quality_gate({"outputs": output}, example)["score"] == 0
+        return
+
+    system.consultas = agent
+    result = procesar_ticket(TICKETS[0], system)
+
+    assert result.failed_stage == "specialist" and result.escalado_humano
+    assert result.token_usage_complete
+    assert result.total_tokens == 70 + 120 + 3300
+    specialist = result.metricas_agentes[-1]
+    assert specialist.model_calls == 2
+    assert specialist.input_tokens == 1900 and specialist.output_tokens == 1520
+    assert specialist.cost_usd == pytest.approx(0.001197)
 
 
 def test_trajectory_matches_agent_arguments_order_and_multiplicity():
@@ -480,6 +540,180 @@ def test_golden_scenarios_have_valid_assertion_definitions():
         for result in rules.tool_results:
             for pattern in result.contains.values():
                 re.compile(pattern)
+
+
+def test_candidate_reuses_one_trusted_customer_snapshot(monkeypatch):
+    from src.agents import load_spec
+    from src.pipeline import context as context_module
+
+    reads = []
+
+    def read_snapshot(cliente_id):
+        reads.append(cliente_id)
+        return "Nombre privado", "Premium"
+
+    repo = context_module.get_repo()
+    monkeypatch.setattr(repo, "get_customer_snapshot", read_snapshot)
+    monkeypatch.setattr(repo, "get_cliente", lambda *_args: pytest.fail("Full CRM lookup"))
+    system = _sistema("consulta")
+    system.snapshot_agents = frozenset({"triaje", "consultas"})
+    result = procesar_ticket(TICKETS[4], system)
+    assert reads == [TICKETS[4]["cliente_id"]]
+    assert "Segmento verificado: Premium" in system.triaje.prompts[0]
+    assert "Nombre privado" not in system.triaje.prompts[0]
+    assert "segmento=Premium" in system.consultas.prompts[0]
+    assert result.clasificacion.segmento_cliente == "Premium"
+    assert [tool.name for tool in load_spec("triaje", "v6").tools] == ["consultar_ultimo_pedido"]
+    assert "consultar_cliente" not in [tool.name for tool in load_spec("consultas", "v6").tools]
+
+
+def test_golden_latest_order_checks_select_expected_calls_for_each_triaje_version():
+    from src.pipeline.langsmith_eval import tool_trajectory_match
+
+    row = next(scenario for scenario in load_eval_dataset() if scenario["id"] == "EVAL-007")
+    reference = {"outputs": row}
+    old_calls = row["expected_tool_calls"]
+    new_calls = [{"agent": "triaje", "tool": "consultar_ultimo_pedido"}, *old_calls[1:]]
+    assert tool_trajectory_match({"outputs": {"tool_calls": old_calls}}, reference)["score"] == 1
+    candidate = {"customer_snapshot_agents": ["triaje", "consultas"], "tool_calls": new_calls}
+    assert tool_trajectory_match({"outputs": candidate}, reference)["score"] == 1
+    assert tool_trajectory_match({"outputs": {**candidate, "tool_calls": old_calls}}, reference)["score"] == 0
+    assert tool_trajectory_match({"outputs": {**candidate, "tool_calls": new_calls[1:]}}, reference)["score"] == 0
+
+
+@pytest.mark.parametrize(("message", "order_id", "allowed"), [
+    ("Quiero devolver el último producto que compré", None, True),
+    ("Quiero devolver mi compra más reciente", None, True),
+    ("Quiero devolver mi último pedido P9003", None, False),
+    ("Quiero devolver mi último pedido", "P9005", False),
+    ("¿Cuál es el último estado de mi envío?", None, False),
+])
+def test_latest_order_lookup_requires_an_unresolved_latest_order_reference(message, order_id, allowed):
+    from src.pipeline.context import solicita_ultimo_pedido
+
+    assert solicita_ultimo_pedido({"mensaje": message, "pedido_id": order_id}) is allowed
+
+
+@pytest.mark.parametrize("explicit_order", [None, "P9003"])
+def test_verified_empty_latest_order_only_overrides_an_unresolved_order(explicit_order):
+    from src.pipeline.eval_dataset import scenario_to_ticket
+
+    scenario = next(row for row in load_eval_dataset() if row["id"] == "EVAL-023")
+    ticket = {**scenario_to_ticket(scenario), "pedido_id": explicit_order}
+    system = _sistema("devolucion")
+    system.snapshot_agents = frozenset({"triaje"})
+    system.scoped_order_agents = frozenset({"triaje", "devoluciones"})
+    system.triaje = Stub(
+        ClasificacionTicket(
+            categoria="devolucion", prioridad="media", segmento_cliente="Estándar",
+            pedido_id=explicit_order or "último", sku="SKU-002", resumen="r", justificacion="j",
+        ),
+        "triaje",
+        tool_calls=[{"name": "consultar_ultimo_pedido", "args": {}, "id": "latest"}],
+        tool_results=[ToolMessage(content='{"ultimo_pedido": null}', name="consultar_ultimo_pedido", tool_call_id="latest")],
+    )
+
+    result = procesar_ticket(ticket, system)
+
+    assert system.triaje.contexts[0].latest_order_allowed is (explicit_order is None)
+    assert system.devoluciones.contexts[0].latest_order_missing is (explicit_order is None)
+    assert result.clasificacion.pedido_id == explicit_order
+    assert result.clasificacion.sku == (None if explicit_order is None else "SKU-002")
+    assert ("no encontró pedidos" in system.devoluciones.prompts[0]) is (explicit_order is None)
+
+
+def test_verified_latest_order_reaches_returns_in_the_ticket_context():
+    from src.pipeline.eval_dataset import scenario_to_ticket
+
+    scenario = next(row for row in load_eval_dataset() if row["id"] == "EVAL-007")
+    system = _sistema("devolucion")
+    system.snapshot_agents = frozenset({"triaje"})
+    system.scoped_order_agents = frozenset({"triaje", "devoluciones"})
+    system.verified_return_handoff = True
+    system.triaje = Stub(
+        ClasificacionTicket(categoria="devolucion", prioridad="media", segmento_cliente="VIP", resumen="r", justificacion="j"),
+        "triaje",
+        tool_calls=[{"name": "consultar_ultimo_pedido", "args": {}, "id": "latest"}],
+        tool_results=[ToolMessage(
+            content='{"ultimo_pedido": {"pedido_id": "P9001"}}', name="consultar_ultimo_pedido", tool_call_id="latest",
+        )],
+    )
+
+    result = procesar_ticket(scenario_to_ticket(scenario), system)
+
+    assert result.clasificacion.pedido_id == "P9001"
+    assert "Pedido referenciado: ninguno" in system.triaje.prompts[0]
+    assert "Pedido referenciado: P9001" in system.devoluciones.prompts[0]
+    assert "Pedido referenciado: ninguno" not in system.devoluciones.prompts[0]
+
+
+def test_verified_label_is_sent_to_qa_after_truncation():
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+    from openai import LengthFinishReasonError
+    from openai.types.chat import ChatCompletion
+
+    from src.agents import build_agent
+    from src.data.repositories import evaluation_repository
+    from src.pipeline.eval_dataset import scenario_to_ticket
+    from src.schemas.outputs import EvaluacionQACompacta
+
+    class ReturnsModel(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+        def _generate(self, messages, *args, **kwargs):
+            if isinstance(messages[-1], ToolMessage) and messages[-1].name == "crear_etiqueta_devolucion":
+                raise LengthFinishReasonError(completion=ChatCompletion(
+                    id="test", choices=[], created=0, model="gpt-4o-mini", object="chat.completion",
+                    usage={"prompt_tokens": 1556, "completion_tokens": 1500, "total_tokens": 3056},
+                ))
+            return super()._generate(messages, *args, **kwargs)
+
+    calls = [
+        ("consultar_pedido", {"pedido_id": "P9005"}),
+        ("verificar_devolucion", {"pedido_id": "P9005", "sku": "SKU-001"}),
+        ("crear_etiqueta_devolucion", {"pedido_id": "P9005", "sku": "SKU-001", "motivo": "Fallo de sonido"}),
+    ]
+    responses = [
+        AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": name}])
+        for name, args in calls
+    ]
+    qa = EvaluacionQACompacta(precision=5, politica=5, tono=5, completitud=5, veredicto="aprobado", respuesta_final=None)
+    system = _sistema("devolucion", qas=qa)
+    system.devoluciones = build_agent("devoluciones", version="v7", llm=ReturnsModel(responses=responses))
+    scenario = next(row for row in load_eval_dataset() if row["id"] == "EVAL-022")
+
+    with evaluation_repository():
+        result = procesar_ticket(scenario_to_ticket(scenario), system)
+
+    assert result.failed_stage is None and not result.escalado_humano
+    rma = result.tool_calls[-1].result
+    assert rma["rma_id"] in result.respuesta_final and rma["etiqueta_url"] in result.respuesta_final
+    assert "5-7 días laborables" in result.respuesta_final
+    assert rma["rma_id"] in system.qa.prompts[0]
+    assert result.metricas_agentes[1].model_calls == 4
+    assert result.metricas_agentes[1].total_tokens == 3056
+
+
+def test_snapshot_benchmark_requires_trusted_tier_and_scoped_tools_for_partial_adoption():
+    from src.pipeline.langsmith_eval import scenario_assertions, tool_trajectory_match
+
+    row = next(scenario for scenario in load_eval_dataset() if scenario["id"] == "EVAL-005")
+    reference = {"outputs": row}
+    triaje_crm = next(call for call in row["expected_tool_calls"] if call["agent"] == "triaje")
+    candidate = {
+        "customer_snapshot_agents": ["consultas"],
+        "customer_snapshot_loaded": True,
+        "clasificacion": {"segmento_cliente": "Estándar", "pedido_id": None},
+        "respuesta_final": "30 días. Reembolso de 5 a 7 días laborables. Productos personalizados y licencias no admitidos.",
+        "tool_calls": [triaje_crm],
+    }
+    assert tool_trajectory_match({"outputs": candidate}, reference)["score"] == 1
+    assert scenario_assertions({"outputs": candidate}, reference)["score"] == 1
+    assert scenario_assertions({"outputs": {**candidate, "customer_snapshot_loaded": False}}, reference)["score"] == 0
+    assert scenario_assertions({"outputs": {**candidate, "clasificacion": {"segmento_cliente": "VIP"}}}, reference)["score"] == 0
+    unexpected = {**candidate, "tool_calls": [triaje_crm, {"agent": "triaje", "tool": "consultar_ultimo_pedido"}]}
+    assert tool_trajectory_match({"outputs": unexpected}, reference)["score"] == 0
 
 
 @pytest.mark.parametrize(("verdict", "rewrite", "expected"), [

@@ -43,6 +43,31 @@ class SupportRepository:
     def current_date(self) -> date:
         return self.as_of or date.today()
 
+    def get_customer_snapshot(self, cliente_id: str) -> tuple[str, str] | None:
+        """Read only the customer details needed across agent calls."""
+        with self._session_factory() as session:
+            row = session.execute(
+                select(ClienteModel.nombre, ClienteModel.segmento)
+                .where(ClienteModel.cliente_id == cliente_id.strip().upper())
+            ).one_or_none()
+        return (row.nombre, row.segmento) if row else None
+
+    def get_latest_order_summary(self, cliente_id: str) -> dict[str, Any] | None:
+        with self._session_factory() as session:
+            order = session.scalars(
+                select(PedidoModel)
+                .where(PedidoModel.cliente_id == cliente_id.strip().upper())
+                .order_by(PedidoModel.fecha_compra.desc(), PedidoModel.pedido_id.desc())
+                .limit(1)
+            ).unique().one_or_none()
+            if order is None:
+                return None
+            return {
+                "pedido_id": order.pedido_id,
+                "estado_envio": order.estado_envio,
+                "productos": [{"sku": item.sku, "nombre": item.nombre} for item in order.items],
+            }
+
     def get_cliente(self, cliente_id: str) -> dict[str, Any] | None:
         cid = cliente_id.strip().upper()
         with self._session_factory() as s:

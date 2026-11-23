@@ -1,17 +1,20 @@
 """Orquestación: Triaje -> Especialista (con bucle de reintento ante rechazo de QA) -> QA / Escalado a humano."""
 import json
 import time
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.outputs import LLMResult
 from pydantic import BaseModel, Field
 
 from src import config
-from src.agents import active_version, build_agent, get_active_versions
+from src.agents import active_version, build_agent, get_active_versions, load_spec
 from src.llm import calculate_cost
 from src.pipeline import steps
-from src.pipeline.context import TicketContext, generar_contexto
+from src.pipeline.context import TicketContext, cargar_contexto_cliente, generar_contexto, solicita_ultimo_pedido
 from src.schemas.outputs import BorradorRespuesta, ClasificacionTicket, EvaluacionQA, EvaluacionQACompacta
 
 RECURSION_LIMIT = 15
@@ -38,6 +41,8 @@ class AgentStepMetrics(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
+    model_calls: int = 0
+    token_usage_complete: bool = True
     cost_usd: float | None = None
     tool_calls: list[ToolCallTrace] = Field(default_factory=list)
 
@@ -50,6 +55,9 @@ class SistemaMultiagente:
     consultas: Any
     qa: Any
     versiones: dict[str, str] = field(default_factory=dict)
+    snapshot_agents: frozenset[str] = frozenset()
+    scoped_order_agents: frozenset[str] = frozenset()
+    verified_return_handoff: bool = False
 
     def especialista(self, categoria: str):
         return {
@@ -78,6 +86,8 @@ class ResultadoTicket(BaseModel):
     metricas_agentes: list[AgentStepMetrics] = Field(default_factory=list)
     tool_calls: list[ToolCallTrace] = Field(default_factory=list)
     total_tokens: int = 0
+    token_usage_complete: bool = True
+    customer_snapshot_loaded: bool = False
     cost_usd: float | None = None
     ttft_seconds: float | None = None
     segundos: float
@@ -92,6 +102,14 @@ def construir_sistema(
 ) -> SistemaMultiagente:
     """Crea los 5 agentes con las versiones indicadas; las omitidas usan `active_versions.yaml`."""
     ver_map = {**get_active_versions(), **(versions or {})}
+    returns_spec = load_spec("devoluciones", ver_map["devoluciones"])
+    snapshot_agents = frozenset(
+        name for name in ("triaje", "consultas")
+        if load_spec(name, ver_map[name]).reuse_customer_snapshot
+    )
+    scoped_order_agents = frozenset(
+        spec.name for spec in (load_spec("triaje", ver_map["triaje"]), returns_spec) if spec.scoped_order_tools
+    )
     make = lambda name: build_agent(
         name, version=ver_map[name], llm=llm, provider=provider, model_name=model_name
     )
@@ -102,6 +120,9 @@ def construir_sistema(
         consultas=make("consultas"),
         qa=make("qa"),
         versiones=ver_map,
+        snapshot_agents=snapshot_agents,
+        scoped_order_agents=scoped_order_agents,
+        verified_return_handoff=returns_spec.verified_return_handoff,
     )
 
 
@@ -113,6 +134,7 @@ def _tool_evidence(message: ToolMessage) -> dict[str, Any] | None:
         "buscar_knowledge_base": ("resultados",),
         "verificar_incidencias": ("incidencias_activas",),
         "consultar_cliente": ("segmento",),
+        "consultar_ultimo_pedido": ("ultimo_pedido",),
     }.get(message.name)
     if not fields or message.status == "error" or not isinstance(message.content, str):
         return None
@@ -129,32 +151,40 @@ def _tool_evidence(message: ToolMessage) -> dict[str, Any] | None:
     return evidence
 
 
-def _extract_telemetry(agent_name: str, version: str, out: dict[str, Any], elapsed: float) -> AgentStepMetrics:
+def _extract_telemetry(
+    agent_name: str, version: str, out: dict[str, Any], elapsed: float, *, failed_calls: Sequence[AIMessage] = (),
+) -> AgentStepMetrics:
     """Extrae tool_calls reales y tokens consumidos del historial de mensajes de LangChain."""
     tool_calls: list[ToolCallTrace] = []
     in_tok = out_tok = tot_tok = 0
     response_format_name = None
     costs: list[float | None] = []
+    token_usage_complete = True
     if "structured_response" in out and out["structured_response"] is not None:
         response_format_name = type(out["structured_response"]).__name__
 
-    messages = out.get("messages") or []
+    messages = [*(out.get("messages") or []), *failed_calls]
+    model_calls = sum(isinstance(msg, AIMessage) for msg in messages)
     results = {msg.tool_call_id: _tool_evidence(msg) for msg in messages if isinstance(msg, ToolMessage)}
     for msg in messages:
         usage = getattr(msg, "usage_metadata", None) or (msg.get("usage_metadata") if isinstance(msg, dict) else None)
         if isinstance(usage, dict):
             input_count = usage.get("input_tokens")
             output_count = usage.get("output_tokens")
+            reported_total = usage.get("total_tokens")
+            has_breakdown = input_count is not None and output_count is not None
+            token_usage_complete &= reported_total is not None or has_breakdown
             in_tok += int(input_count or 0)
             out_tok += int(output_count or 0)
-            tot_tok += int(usage.get("total_tokens") or 0)
+            tot_tok += int(reported_total) if reported_total is not None else (int(input_count or 0) + int(output_count or 0))
             metadata = (msg.get("response_metadata") if isinstance(msg, dict) else getattr(msg, "response_metadata", None)) or {}
             model = metadata.get("model_name") or metadata.get("model")
             costs.append(
                 calculate_cost(model, int(input_count), int(output_count))
-                if input_count is not None and output_count is not None else None
+                if has_breakdown else None
             )
         elif isinstance(msg, AIMessage):
+            token_usage_complete = False
             costs.append(None)
 
         raw_calls = getattr(msg, "tool_calls", None) or (msg.get("tool_calls") if isinstance(msg, dict) else None) or []
@@ -178,20 +208,69 @@ def _extract_telemetry(agent_name: str, version: str, out: dict[str, Any], elaps
         segundos=round(elapsed, 2),
         input_tokens=in_tok,
         output_tokens=out_tok,
-        total_tokens=tot_tok or (in_tok + out_tok),
+        total_tokens=tot_tok,
+        model_calls=model_calls,
+        token_usage_complete=token_usage_complete,
         cost_usd=cost,
         tool_calls=tool_calls,
     )
 
 
+class _ModelUsageRecorder(BaseCallbackHandler):
+    def __init__(self):
+        self.completed: list[AIMessage] = []
+        self.failed: list[AIMessage] = []
+
+    @staticmethod
+    def _message(response: LLMResult | None) -> AIMessage:
+        if response and response.generations and response.generations[0]:
+            message = getattr(response.generations[0][0], "message", None)
+            if isinstance(message, AIMessage):
+                return message
+        return AIMessage(content="")
+
+    def on_llm_end(self, response: LLMResult, **kwargs) -> None:
+        self.completed.append(self._message(response))
+
+    def on_llm_error(self, error: BaseException, *, response: LLMResult | None = None, **kwargs) -> None:
+        message = self._message(response)
+        # OpenAI exposes usage on the completion when structured parsing hits its length limit.
+        completion = getattr(error, "completion", None)
+        usage = getattr(completion, "usage", None)
+        if message.usage_metadata is None and usage is not None:
+            message = AIMessage(content="", usage_metadata={
+                "input_tokens": usage.prompt_tokens,
+                "output_tokens": usage.completion_tokens,
+                "total_tokens": usage.total_tokens,
+            }, response_metadata={"model_name": completion.model})
+        self.failed.append(message)
+
+
+class AgentRunError(RuntimeError):
+    def __init__(self, metrics: AgentStepMetrics):
+        super().__init__(f"El agente {metrics.agent}:{metrics.version} no completó la ejecución")
+        self.metrics = metrics
+
+
 def _run(agent, prompt: str, *, context: TicketContext, agent_name: str = "agent", version: str = "v1") -> tuple[Any, AgentStepMetrics]:
     t0 = time.time()
-    out = agent.invoke(
-        {"messages": [{"role": "user", "content": prompt}]},
-        config={"recursion_limit": RECURSION_LIMIT},
-        context=context,
-    )
-    metrics = _extract_telemetry(agent_name, version, out, time.time() - t0)
+    recorder = _ModelUsageRecorder()
+    try:
+        out = agent.invoke(
+            {"messages": [{"role": "user", "content": prompt}]},
+            config={"recursion_limit": RECURSION_LIMIT, "callbacks": [recorder]},
+            context=context,
+        )
+    except Exception as exc:
+        if not recorder.failed and (not recorder.completed or getattr(exc, "completion", None) is not None):
+            recorder.on_llm_error(exc)
+        metrics = _extract_telemetry(
+            agent_name, version, {"messages": recorder.completed}, time.time() - t0, failed_calls=recorder.failed,
+        )
+        raise AgentRunError(metrics) from exc
+    metrics = _extract_telemetry(agent_name, version, out, time.time() - t0, failed_calls=recorder.failed)
+    if "structured_response" not in out:
+        raise AgentRunError(metrics)
     return out["structured_response"], metrics
 
 
@@ -233,6 +312,16 @@ def procesar_ticket(
     clasif = nombre_esp = borrador = qa = None
     triaje_fallido = False
     intentos_qa = 0
+    customer_snapshot_loaded = False
+
+    def run_stage(agent, prompt: str, *, agent_name: str, version: str) -> tuple[Any, AgentStepMetrics]:
+        try:
+            output, metrics = _run(agent, prompt, context=context, agent_name=agent_name, version=version)
+        except AgentRunError as exc:
+            metricas.append(exc.metrics)
+            raise
+        metricas.append(metrics)
+        return output, metrics
 
     def finish(failed_stage: FailureStage | None = None) -> ResultadoTicket:
         escalado, motivo_escalado = _evaluar_escalado(triaje_fallido, borrador, qa, intentos_qa, failed_stage)
@@ -262,13 +351,24 @@ def procesar_ticket(
             metricas_agentes=metricas,
             tool_calls=all_tools,
             total_tokens=total_tokens,
+            token_usage_complete=all(m.token_usage_complete for m in metricas),
+            customer_snapshot_loaded=customer_snapshot_loaded,
             cost_usd=total_cost,
             segundos=elapsed,
         )
 
     try:
-        context = TicketContext(ticket["cliente_id"])
-        ctx = generar_contexto(ticket)
+        if sistema.snapshot_agents:
+            context = cargar_contexto_cliente(ticket["cliente_id"])
+            customer_snapshot_loaded = True
+            ctx = generar_contexto(ticket, context=context)
+        else:
+            context = TicketContext(ticket["cliente_id"])
+            ctx = generar_contexto(ticket)
+        snapshot_triaje = "triaje" in sistema.snapshot_agents
+        if "triaje" in sistema.scoped_order_agents:
+            context = replace(context, latest_order_allowed=solicita_ultimo_pedido(ticket))
+        triage_ctx = generar_contexto(ticket, context=context, incluir_identidad=False) if snapshot_triaje else ctx
     except Exception:
         return finish("context")
 
@@ -278,10 +378,10 @@ def procesar_ticket(
     # Paso 1: Triaje
     usados["triaje"] = triaje_ver
     try:
-        clasif, m_triaje = _run(
-            sistema.triaje, steps.paso_triaje(ctx), context=context, agent_name="triaje", version=triaje_ver
+        clasif, m_triaje = run_stage(
+            sistema.triaje, steps.paso_triaje(triage_ctx, consultar_crm=not snapshot_triaje),
+            agent_name="triaje", version=triaje_ver,
         )
-        metricas.append(m_triaje)
     except Exception:
         triaje_fallido = True
         clasif = ClasificacionTicket(
@@ -293,6 +393,31 @@ def procesar_ticket(
             justificacion="fallback",
         )
 
+    if sistema.snapshot_agents:
+        segmento = context.customer.segmento if context.customer else "Desconocido"
+        clasif = clasif.model_copy(update={"segmento_cliente": segmento})
+
+    if (
+        clasif.categoria == "devolucion"
+        and "devoluciones" in sistema.scoped_order_agents
+        and not triaje_fallido
+        and solicita_ultimo_pedido(ticket)
+    ):
+        latest = next(
+            (call.result for call in reversed(m_triaje.tool_calls) if call.tool == "consultar_ultimo_pedido"), None,
+        )
+        if latest is not None and "ultimo_pedido" in latest and latest["ultimo_pedido"] is None:
+            context = replace(context, latest_order_missing=True)
+            clasif = clasif.model_copy(update={"pedido_id": None, "sku": None})
+            ctx += "\nÚltimo pedido: la consulta del cliente no encontró pedidos."
+        elif sistema.verified_return_handoff and latest:
+            order = latest.get("ultimo_pedido")
+            order_id = order.get("pedido_id") if isinstance(order, dict) else None
+            if isinstance(order_id, str) and order_id.strip():
+                clasif = clasif.model_copy(update={"pedido_id": order_id})
+                ctx = generar_contexto({**ticket, "pedido_id": order_id}, context=context)
+                ctx += "\nEl número de pedido referenciado se verificó en la búsqueda del último pedido."
+
     # Paso 2 + Paso 3: Especialista -> QA (con bucle de reintento si QA rechaza)
     nombre_esp = _CATEGORIA_A_ESPECIALISTA[clasif.categoria]
     esp_ver = sistema.versiones.get(nombre_esp, active_version(nombre_esp))
@@ -300,10 +425,9 @@ def procesar_ticket(
 
     usados[nombre_esp] = esp_ver
     try:
-        draft, m_esp = _run(
-            agente, steps.paso_resolucion(ctx, clasif), context=context, agent_name=nombre_esp, version=esp_ver
+        draft, _ = run_stage(
+            agente, steps.paso_resolucion(ctx, clasif), agent_name=nombre_esp, version=esp_ver
         )
-        metricas.append(m_esp)
         borrador = BorradorRespuesta.model_validate(draft)
     except Exception:
         return finish("specialist")
@@ -312,11 +436,10 @@ def procesar_ticket(
     while True:
         intentos_qa += 1
         try:
-            assessment, m_qa = _run(
+            assessment, _ = run_stage(
                 sistema.qa, steps.paso_qa(ctx, clasif, borrador),
-                context=context, agent_name="qa", version=qa_ver,
+                agent_name="qa", version=qa_ver,
             )
-            metricas.append(m_qa)
             qa = EvaluacionQA.model_validate(assessment)
         except Exception:
             qa = None
@@ -326,12 +449,11 @@ def procesar_ticket(
             break
 
         try:
-            draft, m_esp_retry = _run(
+            draft, _ = run_stage(
                 agente,
                 steps.paso_correccion(ctx, clasif, borrador, qa.observaciones),
-                context=context, agent_name=nombre_esp, version=esp_ver,
+                agent_name=nombre_esp, version=esp_ver,
             )
-            metricas.append(m_esp_retry)
             borrador = BorradorRespuesta.model_validate(draft)
         except Exception:
             return finish("specialist_retry")
