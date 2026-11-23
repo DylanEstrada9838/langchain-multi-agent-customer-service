@@ -85,6 +85,19 @@ $baseline = ".\outputs\baseline-$(Get-Date -Format yyyyMMdd-HHmmss).json"
 .\.venv\Scripts\python.exe main.py --eval --baseline $baseline --update-baseline
 ```
 
+### 3.4 Development and private holdout
+
+Use the public 23-scenario dataset for prompt development. Write fresh holdout scenarios with different wording, cases, and boundary values. Store the JSONL outside the repository or under the ignored `outputs/` directory and use an unshared LangSmith dataset. Freeze the candidate before evaluating the holdout.
+
+```powershell
+$qa = ".\outputs\techstore-support-holdout-qa.jsonl"
+.\.venv\Scripts\python.exe main.py --sync-dataset --dataset-name techstore-support-holdout-qa --holdout-file $qa
+.\.venv\Scripts\python.exe main.py --eval --dataset-name techstore-support-holdout-qa --holdout-file $qa --versions qa:v4 --fail-on-gate
+.\.venv\Scripts\python.exe main.py --eval --dataset-name techstore-support-holdout-qa --holdout-file $qa --versions qa:v5 --fail-on-gate
+```
+
+Use identical frozen specialist drafts and evidence for the paired QA comparison. The QA-only gate measures scenario pass rate using expected verdicts and any case-specific assertions. Run the finalist once on a separate end-to-end version of the same holdout for routing, escalation, and final reply checks. Holdout reports default to `outputs/` and record the split, dataset name, version mix, and benchmark fingerprint. They cannot overwrite the development baseline or its canonical reports. Share aggregate holdout results in the promotion PR and keep scenario details private.
+
 ## 4. Promote through a pull request
 
 Open a pull request to `main` for each baseline promotion so the evidence and decision are recorded together.

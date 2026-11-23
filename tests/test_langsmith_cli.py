@@ -1,4 +1,5 @@
 """Offline coverage for the LangSmith-only CLI and CI report contract."""
+import json
 from contextlib import nullcontext
 from io import BytesIO, TextIOWrapper
 from types import SimpleNamespace
@@ -82,15 +83,25 @@ def test_full_reports_must_match_current_benchmark(tmp_path):
         {**report, "scenario_ids": ids[:-1]},
         {**report, "provenance": {**report["provenance"], "source_fingerprint": "stale"}},
         {**report, "provenance": {**report["provenance"], "benchmark_fingerprint": "stale"}},
+        {**report, "provenance": {**report["provenance"], "dataset_split": "holdout"}},
         {**report, "passed": False},
     ):
         with pytest.raises(ValueError):
             validate_full_report(invalid)
 
 
-def test_full_experiment_uses_langsmith_scores_and_validates_dataset(monkeypatch):
+@pytest.mark.parametrize("holdout", [False, True])
+def test_full_experiment_uses_langsmith_scores_and_validates_dataset(monkeypatch, tmp_path, holdout):
     name = "golden"
     dataset = load_eval_dataset()
+    holdout_path = None
+    failed_id = "EVAL-004"
+    if holdout:
+        name = "private-test-holdout"
+        dataset = [{**row, "id": f"MOCK-{row['id']}", "user_input": f"Mock input {row['id']}"} for row in dataset]
+        holdout_path = tmp_path / "holdout.jsonl"
+        holdout_path.write_text("\n".join(json.dumps(row) for row in dataset), encoding="utf-8")
+        failed_id = "MOCK-EVAL-004"
     examples = [SimpleNamespace(**langsmith_eval.scenario_to_langsmith_example(row, name)) for row in dataset]
     client = SimpleNamespace(
         list_examples=lambda **kwargs: iter(examples),
@@ -105,7 +116,7 @@ def test_full_experiment_uses_langsmith_scores_and_validates_dataset(monkeypatch
         rows = []
         for example in data:
             feedback = [SimpleNamespace(key=check.__name__, score=1, comment="") for check in evaluators]
-            if example.inputs["id"] == "EVAL-004":
+            if example.inputs["id"] == failed_id:
                 feedback[-1].score = 0
                 feedback[-1].comment = "Failed: tool_result.consultar_pedido.1"
             rows.append({
@@ -120,18 +131,30 @@ def test_full_experiment_uses_langsmith_scores_and_validates_dataset(monkeypatch
         return Results(rows)
 
     monkeypatch.setattr("langsmith.evaluate", evaluate)
-    summary = langsmith_eval.run_langsmith_experiment(name, client=client)
+    summary = langsmith_eval.run_langsmith_experiment(name, client=client, holdout_path=holdout_path)
     assert summary.total_examples == 23 and len(summary.scenario_ids) == 23 and not summary.partial
     assert summary.metrics["pass_rate"] == round(22 / 23, 4)
-    assert summary.failed_scenarios == {"EVAL-004": ["scenario_assertions"]}
-    assert "consultar_pedido.1" in summary.scenario_feedback["EVAL-004"]["scenario_assertions"]
-    assert "manual_review" in summary.scenario_feedback["EVAL-004"]
+    assert summary.provenance["dataset_name"] == name
+    assert summary.provenance["dataset_split"] == ("holdout" if holdout else "dev")
+    assert summary.failed_scenarios == {failed_id: ["scenario_assertions"]}
+    assert "consultar_pedido.1" in summary.scenario_feedback[failed_id]["scenario_assertions"]
+    assert "manual_review" in summary.scenario_feedback[failed_id]
     assert summary.metrics["avg_ttft_seconds"] is None
 
     examples[0].outputs = {**examples[0].outputs, "assertions": {}}
     monkeypatch.setattr("langsmith.evaluate", lambda *args, **kwargs: pytest.fail("Unexpected inference"))
     with pytest.raises(ValueError, match="desactualizado"):
-        langsmith_eval.run_langsmith_experiment(name, client=client)
+        langsmith_eval.run_langsmith_experiment(name, client=client, holdout_path=holdout_path)
+
+
+def test_holdout_rejects_reused_development_messages(tmp_path):
+    from src.pipeline.eval_dataset import private_holdout_rows
+
+    row = load_eval_dataset()[0]
+    path = tmp_path / "holdout.jsonl"
+    path.write_text(json.dumps({**row, "id": "HOLDOUT-001"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="independent"):
+        private_holdout_rows(path, "private-test-holdout")
 
 
 def test_out_of_scope_scenario_needs_no_second_customer_lookup():

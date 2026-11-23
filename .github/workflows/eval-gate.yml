@@ -59,12 +59,12 @@ jobs:
           import json
           from pathlib import Path
           from src.pipeline.eval_provenance import validate_full_report
-          from src.pipeline.quality_gate import GateReport, render_markdown
+          from src.pipeline.quality_gate import GateReport, load_baseline, render_markdown
 
           report = json.loads(Path('data/latest_eval_report.json').read_text(encoding='utf-8'))
           validate_full_report(report)
           markdown = Path('data/latest_eval_report.md').read_text(encoding='utf-8')
-          if markdown != render_markdown(GateReport.model_validate(report)):
+          if markdown != render_markdown(GateReport.model_validate(report), active_baseline=load_baseline()):
               raise SystemExit('El informe Markdown no corresponde al JSON validado.')
           print('Informe completo, vigente y aprobado.')
           "

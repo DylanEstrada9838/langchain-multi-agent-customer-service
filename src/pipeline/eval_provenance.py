@@ -2,6 +2,7 @@
 import hashlib
 import json
 from dataclasses import asdict
+from pathlib import Path
 
 from src import config
 from src.agents import get_active_versions, load_spec
@@ -25,10 +26,10 @@ def _fixture_settings() -> dict:
     }
 
 
-def benchmark_fingerprint() -> str:
+def benchmark_fingerprint(dataset_path: Path | None = None) -> str:
     return _digest({
         "schema": BENCHMARK_SCHEMA,
-        "scenarios": sorted(load_eval_dataset(), key=lambda row: row["id"]),
+        "scenarios": sorted(load_eval_dataset(dataset_path), key=lambda row: row["id"]),
         "fixture_date": EVALUATION_DATE.isoformat(),
         "fixture_settings": _fixture_settings(),
         "assertion_code": (config.ROOT / "src/pipeline/scenario_checks.py").read_text(encoding="utf-8"),
@@ -45,9 +46,9 @@ def source_fingerprint(versions: dict[str, str]) -> str:
     })
 
 
-def evaluation_provenance(versions: dict[str, str]) -> dict:
+def evaluation_provenance(versions: dict[str, str], *, dataset_path: Path | None = None) -> dict:
     return {
-        "benchmark_fingerprint": benchmark_fingerprint(),
+        "benchmark_fingerprint": benchmark_fingerprint(dataset_path),
         "source_fingerprint": source_fingerprint(versions),
         "fixture_date": EVALUATION_DATE.isoformat(),
         "models": {agent: asdict(load_spec(agent, version).model_config) for agent, version in versions.items()},
@@ -63,6 +64,8 @@ def validate_full_report(report: dict) -> None:
     if report.get("partial") is not False or report.get("scenario_ids") != expected or report.get("total_examples") != len(expected):
         raise ValueError("Report does not cover the full golden dataset.")
     provenance = report.get("provenance") or {}
+    if provenance.get("dataset_split", "dev") != "dev":
+        raise ValueError("The canonical development report must use the development dataset.")
     evaluated_source = provenance.get("source_fingerprint")
     current_source = source_fingerprint(versions)
     if evaluated_source != current_source:
